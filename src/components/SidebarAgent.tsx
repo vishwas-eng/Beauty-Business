@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Bot, SendHorizontal } from "lucide-react";
+import { Bot, SendHorizontal, X } from "lucide-react";
 import { queryAgent } from "../lib/api";
 import { AgentResponse } from "../types/domain";
 
@@ -9,7 +9,7 @@ const quickPrompts = [
   "What is happening with Beardo?"
 ];
 
-export function SidebarAgent() {
+export function SidebarAgent({ onClose }: { onClose?: () => void }) {
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<
@@ -54,11 +54,18 @@ export function SidebarAgent() {
   return (
     <section className="sidebar-agent">
       <div className="sidebar-agent-header">
-        <Bot size={16} />
-        <div>
-          <strong>Agent</strong>
-          <p className="brand-subtitle">Ask across tracker rows, emails, legal status, and documents.</p>
+        <div className="agent-drawer-title">
+          <Bot size={16} />
+          <div>
+            <strong>Ask AI</strong>
+            <p className="brand-subtitle">Ask about brands, markets, categories, stage, or next steps.</p>
+          </div>
         </div>
+        {onClose ? (
+          <button type="button" className="ghost-button agent-close-button" onClick={onClose} aria-label="Close AI chat">
+            <X size={16} />
+          </button>
+        ) : null}
       </div>
 
       <div className="sidebar-agent-prompts">
@@ -78,7 +85,7 @@ export function SidebarAgent() {
         {history.length === 0 ? (
           <div className="agent-empty-state">
             <div className="agent-bubble agent-bubble-assistant">
-              Ask about a brand, legal blocker, market, category, or document like a term sheet.
+              Ask anything about the current business view and I will answer from the latest dashboard data.
             </div>
           </div>
         ) : (
@@ -139,7 +146,7 @@ export function SidebarAgent() {
         <textarea
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Message Agent"
+          placeholder="Ask about any brand, market, category, or stage"
           rows={3}
         />
         <button

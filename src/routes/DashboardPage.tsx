@@ -224,13 +224,6 @@ export function DashboardPage() {
   }
 
   const cleanRows = payload.performance.filter(isExecutiveOpportunity).map(normalizeRow);
-  const audit = payload.audit ?? {
-    rawBrandRows: cleanRows.length,
-    cleanOpportunityRows: cleanRows.length,
-    placeholderRows: 0,
-    rawUniqueBrands: countUniqueBrands(cleanRows),
-    cleanUniqueBrands: countUniqueBrands(cleanRows)
-  };
   const filteredRows = cleanRows.filter((row) => {
     const matchesMarket = marketFilter === "all" || row.launchMarket === marketFilter;
     const matchesCategory = categoryFilter === "all" || row.category === categoryFilter;
@@ -439,15 +432,24 @@ export function DashboardPage() {
   const topHoldReason = holdReasonMix[0]?.category ?? "Too small";
 
   const businessSummary = [
-    `${totalOpportunities} opportunities are active across ${uniqueBrands} brands, with ${lateStageRows.length} in late-stage progress.`,
-    `${mostAdvancedMarket} is furthest ahead, ${mostEarlyStageMarket} has the most early-stage activity, and ${mostBlockedMarket} has the most paused business.`,
-    `${topCategory} has the highest volume, and ${topHoldReason} is the main reason progress is slowing.`
+    {
+      title: "Pipeline",
+      detail: `${totalOpportunities} opportunities are live across ${uniqueBrands} brands, with ${activeRows.length} still active and ${lateStageRows.length} in late-stage progress.`
+    },
+    {
+      title: "Region",
+      detail: `${mostAdvancedMarket} is furthest ahead, ${mostEarlyStageMarket} has the most early-stage activity, and ${mostBlockedMarket} has the highest paused concentration.`
+    },
+    {
+      title: "Category",
+      detail: `${topCategory} has the highest volume, while ${topHoldReason} is the biggest reason progress is slowing.`
+    }
   ];
 
   const topInsights = [
     {
-      title: "Included opportunities",
-      detail: `${audit.cleanOpportunityRows} opportunities are included in the main view. ${audit.placeholderRows} incomplete items are kept out.`
+      title: "Pipeline balance",
+      detail: `${activeRows.length} opportunities are active, ${holdRows.length} are paused, and ${rejectRows.length} have been closed out from the current view.`
     },
     {
       title: "Late-stage pipeline",
@@ -505,8 +507,8 @@ export function DashboardPage() {
         </div>
       </div>
 
-      <section className="content-grid">
-        <div className="panel content-span-2 executive-summary">
+      <section>
+        <div className="panel executive-summary">
           <div className="panel-header">
             <div>
               <h2>Summary</h2>
@@ -515,9 +517,9 @@ export function DashboardPage() {
           </div>
           <div className="summary-grid">
             {businessSummary.map((item) => (
-              <div key={item} className="summary-card">
-                <strong>Summary</strong>
-                <p>{item}</p>
+              <div key={item.title} className="summary-card">
+                <strong>{item.title}</strong>
+                <p>{item.detail}</p>
               </div>
             ))}
           </div>
@@ -526,35 +528,6 @@ export function DashboardPage() {
             <span>{uniqueBrands} brands</span>
             <span>{holdPercent}% on hold</span>
             <span>{staleRows.length} stale over 45 days</span>
-          </div>
-        </div>
-        <div className="panel mini-panel">
-          <div className="panel-header">
-            <div>
-              <h2>Data Check</h2>
-              <p>What is included in the main view.</p>
-            </div>
-          </div>
-          <div className="recon-grid">
-            <div className="recon-card">
-              <strong>All entries</strong>
-              <p>{audit.rawBrandRows} branded entries</p>
-              <p>{audit.rawUniqueBrands} brands</p>
-            </div>
-            <div className="recon-card">
-              <strong>Main view</strong>
-              <p>{audit.cleanOpportunityRows} opportunities</p>
-              <p>{audit.cleanUniqueBrands} brands</p>
-            </div>
-            <div className="recon-card">
-              <strong>Excluded items</strong>
-              <p>{audit.placeholderRows} incomplete items</p>
-              <p>Giordano, Wishlist from Retailers</p>
-            </div>
-            <div className="recon-card">
-              <strong>Market note</strong>
-              <p>SEA has 6 opportunities in the main view.</p>
-            </div>
           </div>
         </div>
       </section>

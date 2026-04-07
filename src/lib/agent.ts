@@ -163,13 +163,13 @@ function buildFocusAnswer(payload: DashboardPayload, query: string): AgentRespon
     .slice(0, 3);
 
   const answer = [
-    `${mqlRows.length} rows are sitting in MQL while only ${commercialRows.length} row is in commercials, so conversion discipline is still the main funnel issue.`,
-    `${holdRows.length} rows are on hold, with the biggest drag coming from sequencing, restructuring, and small-opportunity brands.`,
+    `${mqlRows.length} opportunities are sitting in MQL while only ${commercialRows.length} opportunity is in commercials, so conversion discipline is still the main funnel issue.`,
+    `${holdRows.length} opportunities are on hold, with the biggest drag coming from sequencing, restructuring, and small-opportunity brands.`,
     legalPending.length > 0
       ? `${legalPending.length} legal items are waiting on signatory details, so NDA collection is a real operational blocker.`
       : "There are no pending NDA detail blockers right now.",
     oldestRows.length > 0
-      ? `The most aged active rows are ${oldestRows.map((row) => `${row.brand} (${row.workingDays} days)`).join(", ")}.`
+      ? `The most aged active opportunities are ${oldestRows.map((row) => `${row.brand} (${row.workingDays} days)`).join(", ")}.`
       : ""
   ]
     .filter(Boolean)
@@ -395,8 +395,8 @@ export function runLocalAgentQuery(payload: DashboardPayload, rawQuery: string):
       query,
       answer:
         rows.length > 0
-          ? `${rows.length} opportunity row${rows.length > 1 ? "s" : ""} matched your request.`
-          : "No opportunity rows matched that request.",
+          ? `${rows.length} opportunities matched your request.`
+          : "No opportunities matched that request.",
       sqlPreview,
       resultType: "opportunities",
       rows: uniqueRows(rows).map((row) => formatRow(row)).slice(0, 12),
