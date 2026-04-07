@@ -30,7 +30,7 @@ function buildDemoSession(email = `demo@${ALLOWED_DOMAIN}`): SessionUser {
     email,
     role: "admin",
     workspaceId: "workspace-demo",
-    workspaceName: "Beauty Tracker",
+    workspaceName: "Beauty Business Tracker",
     demoMode: true
   };
 }
@@ -62,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             email: data.user.email,
             role: "admin",
             workspaceId: "workspace-demo",
-            workspaceName: "Beauty Tracker",
+            workspaceName: "Beauty Business Tracker",
             demoMode: false
           });
         } else {
@@ -82,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             email: authSession.user.email,
             role: "admin",
             workspaceId: "workspace-demo",
-            workspaceName: "Beauty Tracker",
+            workspaceName: "Beauty Business Tracker",
             demoMode: false
           });
         } else {

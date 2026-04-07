@@ -58,6 +58,10 @@ a {
   min-height: 100vh;
 }
 
+.app-shell.no-sidebar {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .app-shell.sidebar-hidden {
   grid-template-columns: 0 minmax(0, 1fr);
 }

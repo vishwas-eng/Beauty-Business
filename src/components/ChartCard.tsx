@@ -47,7 +47,7 @@ export function RevenueTrendChart({ data }: { data: TrendPoint[] }) {
             <YAxis yAxisId="right" orientation="right" stroke="#7b8076" />
             <Tooltip
               contentStyle={{ borderRadius: 16, border: "1px solid #d9d2c7", background: "#fffdf9" }}
-              formatter={(value: number) => formatNumber(value)}
+              formatter={(value: number, name: string) => [formatNumber(value), name]}
             />
             <Legend />
             <Area
@@ -63,7 +63,7 @@ export function RevenueTrendChart({ data }: { data: TrendPoint[] }) {
               yAxisId="left"
               type="monotone"
               dataKey="primary"
-              name="Rows"
+              name="Opportunities"
               stroke="#738774"
               strokeWidth={2.5}
               dot={{ r: 3, fill: "#738774" }}
@@ -88,12 +88,14 @@ export function CategoryBarChart({
   title,
   subtitle,
   data,
-  keyName
+  keyName,
+  valueLabel = "Count"
 }: {
   title: string;
   subtitle: string;
   data: CategoryBreakdown[];
   keyName: "revenue" | "inventoryValue";
+  valueLabel?: string;
 }) {
   const colors = ["#7f9482", "#9eae96", "#b8c2ab", "#cdbfa9", "#ddd4c7", "#b7aca0"];
 
@@ -113,9 +115,9 @@ export function CategoryBarChart({
             <YAxis type="category" dataKey="category" width={96} stroke="#7b8076" tick={{ fontSize: 11 }} />
             <Tooltip
               contentStyle={{ borderRadius: 16, border: "1px solid #d9d2c7", background: "#fffdf9" }}
-              formatter={(value: number) => formatNumber(value)}
+              formatter={(value: number) => [formatNumber(value), valueLabel]}
             />
-            <Bar dataKey={keyName} radius={[0, 12, 12, 0]}>
+            <Bar dataKey={keyName} name={valueLabel} radius={[0, 12, 12, 0]}>
               {data.map((item, index) => (
                 <Cell key={item.category} fill={colors[index % colors.length]} />
               ))}
@@ -244,11 +246,13 @@ export function StageStackedChart({
 export function DonutBreakdownChart({
   title,
   subtitle,
-  data
+  data,
+  valueLabel = "Count"
 }: {
   title: string;
   subtitle: string;
   data: CategoryBreakdown[];
+  valueLabel?: string;
 }) {
   const colors = ["#6e8b78", "#c59a63", "#b87474", "#d9d2c7", "#8ea79a"];
 
@@ -277,7 +281,7 @@ export function DonutBreakdownChart({
             </Pie>
             <Tooltip
               contentStyle={{ borderRadius: 16, border: "1px solid #d9d2c7", background: "#fffdf9" }}
-              formatter={(value: number) => formatNumber(value)}
+              formatter={(value: number) => [formatNumber(value), valueLabel]}
             />
             <Legend />
           </PieChart>

@@ -5,36 +5,21 @@ import {
   getStoredAutomationStatus,
   getStoredDashboard,
   getStoredNotionItems,
+  getStoredSource,
   json,
   mergeAutomationIntoDashboard,
   saveStoredAutomationStatus,
   saveStoredDashboard,
   saveStoredSource
 } from "./shared";
+import { buildDashboardFromGoogleSheet } from "./sheets";
 
-async function fetchSheetRows(source: SourceConfig) {
-  const apiKey = process.env.GOOGLE_SHEETS_API_KEY;
-  if (!apiKey || !source.sheetId) {
-    return null;
-  }
-
-  const range = encodeURIComponent(`${source.tabName}!${source.range}`);
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${source.sheetId}/values/${range}?key=${apiKey}`;
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    return null;
-  }
-
-  return (await response.json()) as { values?: string[][] };
-}
-
-function updateDashboardSnapshot(existing: DashboardPayload) {
+function updateDashboardSnapshot(existing: DashboardPayload, sourceStatus: DashboardPayload["sourceStatus"]) {
   return {
     ...existing,
     generatedAt: new Date().toISOString(),
     lastSyncedAt: new Date().toISOString(),
-    sourceStatus: "live" as const
+    sourceStatus
   };
 }
 
@@ -44,20 +29,32 @@ export const handler: Handler = async (event) => {
     saveStoredSource(body.source);
   }
 
-  if (body.source?.enabled) {
-    await fetchSheetRows(body.source);
-  }
+  const source = body.source ?? getStoredSource();
 
   const status = {
     ...getStoredAutomationStatus(),
     lastSheetsSyncAt: new Date().toISOString(),
     lastRunState: "success" as const,
-    mode: process.env.GOOGLE_SHEETS_API_KEY ? ("live" as const) : ("demo" as const)
+    mode:
+      process.env.GOOGLE_SHEETS_API_KEY || process.env.GOOGLE_REFRESH_TOKEN
+        ? ("live" as const)
+        : ("demo" as const)
   };
   saveStoredAutomationStatus(status);
 
+  const currentDashboard = getStoredDashboard() ?? liveDashboard;
+  const liveSheetDashboard = source.enabled
+    ? await buildDashboardFromGoogleSheet(currentDashboard, source)
+    : null;
+  const nextSourceStatus =
+    liveSheetDashboard?.performance?.length
+      ? ("live" as const)
+      : process.env.GOOGLE_SHEETS_API_KEY || process.env.GOOGLE_REFRESH_TOKEN
+        ? ("stale" as const)
+        : ("demo" as const);
+
   const next = mergeAutomationIntoDashboard(
-    updateDashboardSnapshot(getStoredDashboard() ?? liveDashboard),
+    updateDashboardSnapshot(liveSheetDashboard ?? currentDashboard, nextSourceStatus),
     status,
     getStoredNotionItems()
   );

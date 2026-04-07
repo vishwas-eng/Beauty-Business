@@ -40,6 +40,7 @@ export interface PerformanceRow {
   segment?: string;
   company?: string;
   sourceCountry?: string;
+  discussionStartDate?: string;
   launchMarket: string;
   quadrant?: string;
   status: string;
@@ -59,6 +60,14 @@ export interface CategoryBreakdown {
   category: string;
   revenue: number;
   inventoryValue: number;
+}
+
+export interface DashboardAudit {
+  rawBrandRows: number;
+  cleanOpportunityRows: number;
+  placeholderRows: number;
+  rawUniqueBrands: number;
+  cleanUniqueBrands: number;
 }
 
 export interface InsightItem {
@@ -185,6 +194,7 @@ export interface DashboardPayload {
   generatedAt: string;
   lastSyncedAt: string;
   sourceStatus: "live" | "demo" | "stale";
+  audit?: DashboardAudit;
   automation: AutomationStatus;
   sheetHeaders: string[];
   notionContext: NotionContextItem[];

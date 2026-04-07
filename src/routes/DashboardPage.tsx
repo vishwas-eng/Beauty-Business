@@ -19,11 +19,6 @@ const ACTIVE_STATUSES = ["Leads", "Lead", "MQL", "SQL", "Commercials", "OD", "Co
 const LATE_STAGE_STATUSES = ["Commercials", "OD", "Contract", "Onboarding"];
 const STACK_STAGES = ["Leads", "MQL", "SQL", "Commercials", "Hold", "Reject"];
 const EXCLUDED_BRANDS = new Set(["Giordano", "Wishlist from Retailers"]);
-const RAW_BRAND_ROWS = 37;
-const CLEAN_OPPORTUNITY_ROWS = 35;
-const PLACEHOLDER_ROWS = 2;
-const RAW_UNIQUE_BRANDS = 31;
-const CLEAN_UNIQUE_BRANDS = 29;
 const AS_OF_DATE = new Date("2026-04-07T00:00:00Z");
 
 const DISCUSSION_START_DATES: Record<string, string> = {
@@ -76,8 +71,11 @@ function opportunityKey(row: Pick<PerformanceRow, "brand" | "launchMarket">) {
   return `${row.brand.trim()}||${row.launchMarket.trim()}`;
 }
 
-function ageFromDiscussionDate(row: Pick<PerformanceRow, "brand" | "launchMarket" | "workingDays">) {
-  const discussionDate = DISCUSSION_START_DATES[opportunityKey(row)];
+function ageFromDiscussionDate(row: Pick<PerformanceRow, "brand" | "launchMarket" | "workingDays" | "discussionStartDate">) {
+  const discussionDate =
+    "discussionStartDate" in row && typeof row.discussionStartDate === "string" && row.discussionStartDate
+      ? row.discussionStartDate
+      : DISCUSSION_START_DATES[opportunityKey(row)];
   if (!discussionDate) {
     return row.workingDays;
   }
@@ -93,7 +91,13 @@ function isExecutiveOpportunity(row: PerformanceRow) {
   if (!normalizeCategory(row.category) || normalizeCategory(row.category) === "Unassigned") {
     return false;
   }
-  return Boolean(row.segment?.trim() && row.sourceCountry?.trim() && row.launchMarket.trim() && row.status.trim() && DISCUSSION_START_DATES[opportunityKey(row)]);
+  return Boolean(
+    row.segment?.trim() &&
+      row.sourceCountry?.trim() &&
+      row.launchMarket.trim() &&
+      row.status.trim() &&
+      (row.discussionStartDate || DISCUSSION_START_DATES[opportunityKey(row)])
+  );
 }
 
 function normalizeRow(row: PerformanceRow): PerformanceRow {
@@ -220,6 +224,13 @@ export function DashboardPage() {
   }
 
   const cleanRows = payload.performance.filter(isExecutiveOpportunity).map(normalizeRow);
+  const audit = payload.audit ?? {
+    rawBrandRows: cleanRows.length,
+    cleanOpportunityRows: cleanRows.length,
+    placeholderRows: 0,
+    rawUniqueBrands: countUniqueBrands(cleanRows),
+    cleanUniqueBrands: countUniqueBrands(cleanRows)
+  };
   const filteredRows = cleanRows.filter((row) => {
     const matchesMarket = marketFilter === "all" || row.launchMarket === marketFilter;
     const matchesCategory = categoryFilter === "all" || row.category === categoryFilter;
@@ -348,7 +359,7 @@ export function DashboardPage() {
       value: String(totalOpportunities),
       delta: `${marketMix.length} markets covered`,
       tone: "blue" as const,
-      hint: "Fully classified brand-country opportunities in the selected business view.",
+      hint: "Current opportunities in this view.",
       detailTitle: "Launch market counts",
       detailItems: marketCounts.map(([market, count]) => `${market} · ${count}`)
     },
@@ -357,16 +368,16 @@ export function DashboardPage() {
       value: String(uniqueBrands),
       delta: `${categoryMix.length} categories active`,
       tone: "green" as const,
-      hint: "Distinct brands in the selected business view.",
+      hint: "Distinct brands in this view.",
       detailTitle: "Brands included",
       detailItems: Array.from(new Set(filteredRows.map((row) => row.brand))).sort()
     },
     {
       label: "Active Opportunities",
       value: String(activeRows.length),
-      delta: `${Math.round((activeRows.length / Math.max(totalOpportunities, 1)) * 100)}% of clean opportunities`,
+      delta: `${Math.round((activeRows.length / Math.max(totalOpportunities, 1)) * 100)}% of total`,
       tone: "purple" as const,
-      hint: "Lead, qualification, and late-stage opportunities still moving.",
+      hint: "Opportunities that are still moving.",
       detailTitle: "Active status mix",
       detailItems: stageMix.filter((item) => ACTIVE_STATUSES.includes(item.category)).map((item) => `${item.category} · ${item.revenue}`)
     },
@@ -375,7 +386,7 @@ export function DashboardPage() {
       value: `${holdPercent}%`,
       delta: `${holdRows.length} opportunities`,
       tone: "orange" as const,
-      hint: "Share of clean opportunities currently paused.",
+      hint: "Share of opportunities currently paused.",
       detailTitle: "Hold reasons",
       detailItems: holdReasonMix.map((item) => `${item.category} · ${item.revenue}`)
     },
@@ -391,7 +402,7 @@ export function DashboardPage() {
     {
       label: "Avg Lead to MQL",
       value: `${avgLeadToMql}d`,
-      delta: "Recomputed from tracker transitions",
+      delta: "Based on current stage movement",
       tone: "blue" as const,
       hint: "Average time taken to move a lead into MQL.",
       detailTitle: "Lead to MQL examples",
@@ -400,7 +411,7 @@ export function DashboardPage() {
     {
       label: "Avg MQL to SQL",
       value: `${avgMqlToSql}d`,
-      delta: "Recomputed from tracker transitions",
+      delta: "Based on current stage movement",
       tone: "purple" as const,
       hint: "Average time taken to move MQL opportunities toward SQL.",
       detailTitle: "MQL to SQL examples",
@@ -428,22 +439,22 @@ export function DashboardPage() {
   const topHoldReason = holdReasonMix[0]?.category ?? "Too small";
 
   const businessSummary = [
-    `${totalOpportunities} clean opportunities are live across ${uniqueBrands} brands, but only ${lateStageRows.length} are in late-stage pipeline.`,
-    `${mostAdvancedMarket} is the most advanced market, while ${mostEarlyStageMarket} carries the most early-stage volume and ${mostBlockedMarket} has the heaviest blocked concentration.`,
-    `${topCategory} is the largest category group, and ${topHoldReason} is the biggest reason opportunities are not moving forward.`
+    `${totalOpportunities} opportunities are active across ${uniqueBrands} brands, with ${lateStageRows.length} in late-stage progress.`,
+    `${mostAdvancedMarket} is furthest ahead, ${mostEarlyStageMarket} has the most early-stage activity, and ${mostBlockedMarket} has the most paused business.`,
+    `${topCategory} has the highest volume, and ${topHoldReason} is the main reason progress is slowing.`
   ];
 
   const topInsights = [
     {
-      title: "Clean vs raw counts",
-      detail: `${RAW_BRAND_ROWS} branded rows exist in the tracker, but only ${CLEAN_OPPORTUNITY_ROWS} are clean opportunities. Giordano and Wishlist from Retailers stay out of KPI counts.`
+      title: "Included opportunities",
+      detail: `${audit.cleanOpportunityRows} opportunities are included in the main view. ${audit.placeholderRows} incomplete items are kept out.`
     },
     {
-      title: "Late-stage depth is thin",
+      title: "Late-stage pipeline",
       detail: `Only ${lateStageRows.length} opportunity is in Commercials+, so the pipeline is still top and mid-funnel heavy.`
     },
     {
-      title: "Hold pressure is meaningful",
+      title: "Main blocker",
       detail: `${holdRows.length} opportunities are on hold in the current view, with ${topHoldReason} the biggest blocker.`
     }
   ];
@@ -452,9 +463,9 @@ export function DashboardPage() {
     <div className="page-stack">
       <div className="hero-row">
         <div>
-          <div className="eyebrow">Beauty Business Dashboard</div>
+          <div className="eyebrow">Beauty</div>
           <p className="subdued">
-            Last updated {formatDateTime(payload.lastSyncedAt)} · Clean KPI denominator: fully classified opportunities
+            Last updated {formatDateTime(payload.lastSyncedAt)}
           </p>
         </div>
         <div className="action-row">
@@ -498,21 +509,21 @@ export function DashboardPage() {
         <div className="panel content-span-2 executive-summary">
           <div className="panel-header">
             <div>
-              <h2>Executive Readout</h2>
-              <p>Directly aligned to the audited workbook logic.</p>
+              <h2>Summary</h2>
+              <p>Key highlights from the current business view.</p>
             </div>
           </div>
           <div className="summary-grid">
             {businessSummary.map((item) => (
               <div key={item} className="summary-card">
-                <strong>Takeaway</strong>
+                <strong>Summary</strong>
                 <p>{item}</p>
               </div>
             ))}
           </div>
           <div className="summary-footer">
-            <span>{totalOpportunities} clean opportunities</span>
-            <span>{uniqueBrands} clean brands</span>
+            <span>{totalOpportunities} opportunities</span>
+            <span>{uniqueBrands} brands</span>
             <span>{holdPercent}% on hold</span>
             <span>{staleRows.length} stale over 45 days</span>
           </div>
@@ -520,29 +531,29 @@ export function DashboardPage() {
         <div className="panel mini-panel">
           <div className="panel-header">
             <div>
-              <h2>Reconciliation</h2>
-              <p>Raw tracker vs clean executive counts.</p>
+              <h2>Data Check</h2>
+              <p>What is included in the main view.</p>
             </div>
           </div>
           <div className="recon-grid">
             <div className="recon-card">
-              <strong>Raw tracker</strong>
-              <p>{RAW_BRAND_ROWS} branded rows</p>
-              <p>{RAW_UNIQUE_BRANDS} raw unique brands</p>
+              <strong>All entries</strong>
+              <p>{audit.rawBrandRows} branded entries</p>
+              <p>{audit.rawUniqueBrands} brands</p>
             </div>
             <div className="recon-card">
-              <strong>Clean executive</strong>
-              <p>{CLEAN_OPPORTUNITY_ROWS} fully classified opportunities</p>
-              <p>{CLEAN_UNIQUE_BRANDS} clean unique brands</p>
+              <strong>Main view</strong>
+              <p>{audit.cleanOpportunityRows} opportunities</p>
+              <p>{audit.cleanUniqueBrands} brands</p>
             </div>
             <div className="recon-card">
-              <strong>Excluded rows</strong>
-              <p>{PLACEHOLDER_ROWS} incomplete or placeholder records</p>
+              <strong>Excluded items</strong>
+              <p>{audit.placeholderRows} incomplete items</p>
               <p>Giordano, Wishlist from Retailers</p>
             </div>
             <div className="recon-card">
-              <strong>Important note</strong>
-              <p>The workbook supports SEA = 6 clean opportunities, not 7.</p>
+              <strong>Market note</strong>
+              <p>SEA has 6 opportunities in the main view.</p>
             </div>
           </div>
         </div>
@@ -566,14 +577,16 @@ export function DashboardPage() {
       <section className="insight-grid">
         <DonutBreakdownChart
           title="Pipeline Quality"
-          subtitle="Active vs hold vs reject across the clean opportunity set."
+          subtitle="Current mix of active, on hold, and rejected opportunities."
           data={pipelineQuality}
+          valueLabel="Opportunities"
         />
         <CategoryBarChart
           title="Funnel by Status"
-          subtitle="Exact clean opportunity count by status."
+          subtitle="Opportunity count by stage."
           data={stageMix}
           keyName="revenue"
+          valueLabel="Opportunities"
         />
       </section>
 
@@ -593,15 +606,17 @@ export function DashboardPage() {
       <section className="insight-grid">
         <CategoryBarChart
           title="Opportunities by Launch Market"
-          subtitle="Exact clean opportunity count by launch market."
+          subtitle="Opportunity count by launch market."
           data={marketMix}
           keyName="revenue"
+          valueLabel="Opportunities"
         />
         <CategoryBarChart
           title="Opportunities by Category"
           subtitle="Unique brand count by category."
           data={categoryMix}
           keyName="revenue"
+          valueLabel="Brands"
         />
       </section>
 
@@ -610,12 +625,14 @@ export function DashboardPage() {
           title="Segment Split"
           subtitle="Mass, Masstige, and Premium opportunity mix."
           data={segmentMix}
+          valueLabel="Opportunities"
         />
         <CategoryBarChart
           title="Source Country Distribution"
           subtitle="Where current opportunities are being sourced from."
           data={sourceCountryMix}
           keyName="revenue"
+          valueLabel="Opportunities"
         />
       </section>
 
@@ -624,12 +641,14 @@ export function DashboardPage() {
           title="Hold Reasons"
           subtitle="Main reasons paused opportunities are not moving."
           data={holdReasonMix}
+          valueLabel="Opportunities"
         />
         <CategoryBarChart
           title="Stage Timing"
-          subtitle="Average stage transition timing from the workbook."
+          subtitle="Average time spent moving between stages."
           data={transitionTiming}
           keyName="revenue"
+          valueLabel="Days"
         />
       </section>
 
@@ -640,6 +659,7 @@ export function DashboardPage() {
           subtitle="Brands with the most live opportunities across markets."
           data={brandLeaderboard}
           keyName="revenue"
+          valueLabel="Opportunities"
         />
       </section>
 
@@ -665,8 +685,8 @@ export function DashboardPage() {
       <section>
         <PerformanceTable
           rows={filteredRows}
-          title="Full Business View"
-          subtitle="All clean opportunities in the selected dashboard view."
+          title="Opportunity List"
+          subtitle="All opportunities in the current view."
         />
       </section>
     </div>

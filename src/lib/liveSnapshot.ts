@@ -968,6 +968,13 @@ export const liveDashboard: DashboardPayload = {
   generatedAt: "2026-04-06T10:20:00.000Z",
   lastSyncedAt: "2026-04-05T12:30:10.000Z",
   sourceStatus: "live",
+  audit: {
+    rawBrandRows: 37,
+    cleanOpportunityRows: 35,
+    placeholderRows: 2,
+    rawUniqueBrands: 31,
+    cleanUniqueBrands: 29
+  },
   automation: initialAutomationStatus,
   sheetHeaders: liveSheetHeaders,
   notionContext: snapshotContextItems,

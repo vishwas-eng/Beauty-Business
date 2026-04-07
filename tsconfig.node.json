@@ -12,6 +12,7 @@
     "vite.config.ts",
     "netlify/functions/**/*.ts",
     "src/lib/agent.ts",
+    "src/lib/beautyTracker.ts",
     "src/lib/liveSnapshot.ts",
     "src/types/**/*.ts"
   ]

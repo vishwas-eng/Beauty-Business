@@ -27,12 +27,12 @@ export function LoginPage() {
         <div className="login-copy">
           <p className="eyebrow">
             <Sparkles size={14} />
-            Executive preview
+            Beauty
           </p>
-          <h1>Strategic Growth Dashboard</h1>
+          <h1>Beauty Business Tracker</h1>
           <p>
-            Passwordless access for the Opptra team, a manager-ready preview, and a cleaner
-            weekly business review for softlines.
+            Passwordless access for the Opptra team and a simple business view for brands,
+            markets, and current status.
           </p>
           <ul className="feature-list">
             <li>
@@ -41,11 +41,11 @@ export function LoginPage() {
             </li>
             <li>
               <ShieldCheck size={16} />
-              Automated live data refresh
+              Data refresh support
             </li>
             <li>
               <ShieldCheck size={16} />
-              Executive insights and priority actions for growth reviews
+              Clear charts and business metrics
             </li>
           </ul>
         </div>
