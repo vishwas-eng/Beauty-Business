@@ -1,8 +1,20 @@
-import { BarChart3 } from "lucide-react";
+import { BarChart3, Database, FileText, Lock, Scale, Sparkles } from "lucide-react";
 
-export const NAV_ITEMS = [
-  { to: "/", label: "Weekly Review", icon: BarChart3 }
-] as const;
+export interface NavItem {
+  label: string;
+  icon: typeof BarChart3;
+  active?: boolean;
+  comingSoon?: boolean;
+}
+
+export const NAV_ITEMS: NavItem[] = [
+  { label: "Dashboard", icon: BarChart3, active: true },
+  { label: "Data Sources", icon: Database, comingSoon: true },
+  { label: "AI Insights", icon: Sparkles, comingSoon: true },
+  { label: "Legal", icon: Scale, comingSoon: true },
+  { label: "Documents", icon: FileText, comingSoon: true },
+  { label: "Access Control", icon: Lock, comingSoon: true }
+];
 
 export const REQUIRED_HEADERS = [
   "date",
