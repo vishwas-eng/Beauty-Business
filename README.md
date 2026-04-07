@@ -49,6 +49,8 @@ Without external API keys, the app runs from the latest local source snapshot so
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REFRESH_TOKEN`
+- `GOOGLE_APPS_SCRIPT_URL`
+- `GOOGLE_APPS_SCRIPT_KEY`
 - `GOOGLE_WORKSPACE_SENDER`
 - `NOTION_ACCESS_TOKEN`
 - `NOTION_VERSION`
@@ -96,6 +98,10 @@ See [docs/architecture.md](/Users/vishwaspandey/Documents/Playground/docs/archit
 - Use a sheet with these columns:
   `date`, `sku`, `product_name`, `category`, `brand`, `channel`, `sales_qty`, `sales_amount`, `returns_qty`, `inventory_on_hand`, `cost_amount`, `discount_amount`
 - Save the sheet ID, tab, and range in the app settings.
+- For the simplest live setup, you can skip OAuth and point Netlify to an Apps Script web app instead:
+  - `GOOGLE_APPS_SCRIPT_URL`
+  - `GOOGLE_APPS_SCRIPT_KEY`
+  - the script should return JSON with `headers` and `rows`
 
 ### Notion
 

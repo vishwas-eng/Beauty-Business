@@ -14,17 +14,10 @@ import {
   saveStoredSource
 } from "./shared";
 import { createInsights } from "./claude";
+import { fetchBeautyTrackerValues, hasLiveSheetSource } from "./sheets";
 
 async function fetchSheetRows(source: SourceConfig) {
-  const apiKey = process.env.GOOGLE_SHEETS_API_KEY;
-  if (!apiKey || !source.sheetId || !source.enabled) {
-    return null;
-  }
-
-  const range = encodeURIComponent(`${source.tabName}!${source.range}`);
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${source.sheetId}/values/${range}?key=${apiKey}`;
-  const response = await fetch(url);
-  return response.ok ? ((await response.json()) as { values?: string[][] }) : null;
+  return fetchBeautyTrackerValues(source);
 }
 
 async function fetchNotionResults(config: AutomationConfig) {
@@ -80,10 +73,7 @@ export const handler: Handler = async (event) => {
   await fetchSheetRows(config.sheet ?? getStoredSource());
 
   const status = {
-    mode:
-      process.env.NOTION_ACCESS_TOKEN || process.env.GOOGLE_SHEETS_API_KEY || process.env.ANTHROPIC_API_KEY
-        ? ("live" as const)
-        : ("demo" as const),
+    mode: process.env.NOTION_ACCESS_TOKEN || hasLiveSheetSource() || process.env.ANTHROPIC_API_KEY ? ("live" as const) : ("demo" as const),
     scheduleMinutes: config.scheduleMinutes,
     lastRunState: "success" as const,
     lastSheetsSyncAt: new Date().toISOString(),

@@ -12,7 +12,7 @@ import {
   saveStoredDashboard,
   saveStoredSource
 } from "./shared";
-import { buildDashboardFromGoogleSheet } from "./sheets";
+import { buildDashboardFromGoogleSheet, hasLiveSheetSource } from "./sheets";
 
 function updateDashboardSnapshot(existing: DashboardPayload, sourceStatus: DashboardPayload["sourceStatus"]) {
   return {
@@ -35,10 +35,7 @@ export const handler: Handler = async (event) => {
     ...getStoredAutomationStatus(),
     lastSheetsSyncAt: new Date().toISOString(),
     lastRunState: "success" as const,
-    mode:
-      process.env.GOOGLE_SHEETS_API_KEY || process.env.GOOGLE_REFRESH_TOKEN
-        ? ("live" as const)
-        : ("demo" as const)
+    mode: hasLiveSheetSource() ? ("live" as const) : ("demo" as const)
   };
   saveStoredAutomationStatus(status);
 
@@ -49,7 +46,7 @@ export const handler: Handler = async (event) => {
   const nextSourceStatus =
     liveSheetDashboard?.performance?.length
       ? ("live" as const)
-      : process.env.GOOGLE_SHEETS_API_KEY || process.env.GOOGLE_REFRESH_TOKEN
+      : hasLiveSheetSource()
         ? ("stale" as const)
         : ("demo" as const);
 

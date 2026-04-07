@@ -1,6 +1,10 @@
 import { mergeSheetDataIntoDashboard } from "../../src/lib/beautyTracker";
 import { DashboardPayload, SourceConfig } from "../../src/types/domain";
 
+function hasAppsScriptConfig() {
+  return Boolean(process.env.GOOGLE_APPS_SCRIPT_URL && process.env.GOOGLE_APPS_SCRIPT_KEY);
+}
+
 async function getGoogleAccessToken() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -31,8 +35,54 @@ async function getGoogleAccessToken() {
   return data.access_token ?? null;
 }
 
+async function fetchFromAppsScript() {
+  const baseUrl = process.env.GOOGLE_APPS_SCRIPT_URL;
+  const key = process.env.GOOGLE_APPS_SCRIPT_KEY;
+
+  if (!baseUrl || !key) {
+    return null;
+  }
+
+  const url = `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}key=${encodeURIComponent(key)}`;
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const data = (await response.json()) as {
+    ok?: boolean;
+    headers?: string[];
+    rows?: Array<Record<string, string> | string[]>;
+  };
+
+  if (!data.ok || !data.headers?.length || !data.rows) {
+    return null;
+  }
+
+  const headers = data.headers.map((header) => String(header ?? "").trim());
+  const rows = data.rows.map((row) => {
+    if (Array.isArray(row)) {
+      return row.map((value) => String(value ?? "").trim());
+    }
+
+    return headers.map((header) => String(row[header] ?? "").trim());
+  });
+
+  return [headers, ...rows];
+}
+
 export async function fetchBeautyTrackerValues(source: SourceConfig) {
-  if (!source.enabled || !source.sheetId) {
+  if (!source.enabled) {
+    return null;
+  }
+
+  const appsScriptValues = await fetchFromAppsScript();
+  if (appsScriptValues?.length) {
+    return appsScriptValues;
+  }
+
+  if (!source.sheetId) {
     return null;
   }
 
@@ -74,4 +124,8 @@ export async function buildDashboardFromGoogleSheet(
   }
 
   return mergeSheetDataIntoDashboard(currentDashboard, values, new Date().toISOString());
+}
+
+export function hasLiveSheetSource() {
+  return Boolean(hasAppsScriptConfig() || process.env.GOOGLE_SHEETS_API_KEY || process.env.GOOGLE_REFRESH_TOKEN);
 }
