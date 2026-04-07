@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowSyntheticDefaultImports": true,
+    "types": ["node"]
+  },
+  "include": [
+    "vite.config.ts",
+    "netlify/functions/**/*.ts",
+    "src/lib/agent.ts",
+    "src/lib/liveSnapshot.ts",
+    "src/types/**/*.ts"
+  ]
+}
