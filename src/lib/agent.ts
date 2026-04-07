@@ -31,6 +31,26 @@ function uniqueRows(rows: PerformanceRow[]) {
   });
 }
 
+function uniqueBrandCount(rows: PerformanceRow[]) {
+  return new Set(rows.map((row) => row.brand)).size;
+}
+
+function getTopValues(rows: PerformanceRow[], selector: (row: PerformanceRow) => string, limit = 3) {
+  return Array.from(
+    rows.reduce((map, row) => {
+      const key = selector(row) || "Unknown";
+      map.set(key, (map.get(key) ?? 0) + 1);
+      return map;
+    }, new Map<string, number>())
+  )
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, limit);
+}
+
+function buildSuggestionList(items: string[]) {
+  return items.filter(Boolean).slice(0, 4);
+}
+
 function matchBrands(payload: DashboardPayload, text: string) {
   const normalizedQuery = normalize(text);
   return payload.brandProfiles.filter((profile) => {
@@ -125,9 +145,13 @@ function buildBrandAnswer(payload: DashboardPayload, profile: BrandProfile, quer
 function filterByDimension(payload: DashboardPayload, text: string) {
   const markets = Array.from(new Set(payload.performance.map((row) => row.launchMarket)));
   const categories = Array.from(new Set(payload.performance.map((row) => row.category)));
+  const segments = Array.from(new Set(payload.performance.map((row) => row.segment).filter(Boolean))) as string[];
+  const sourceCountries = Array.from(new Set(payload.performance.map((row) => row.sourceCountry).filter(Boolean))) as string[];
 
   const matchedMarket = markets.find((market) => normalize(text).includes(normalize(market)));
   const matchedCategory = categories.find((category) => normalize(text).includes(normalize(category)));
+  const matchedSegment = segments.find((segment) => normalize(text).includes(normalize(segment)));
+  const matchedSourceCountry = sourceCountries.find((country) => normalize(text).includes(normalize(country)));
 
   let rows = payload.performance;
   const filters: string[] = [];
@@ -142,13 +166,195 @@ function filterByDimension(payload: DashboardPayload, text: string) {
     filters.push(`category = '${matchedCategory.replace(/'/g, "''")}'`);
   }
 
+  if (matchedSegment) {
+    rows = rows.filter((row) => row.segment === matchedSegment);
+    filters.push(`segment = '${matchedSegment.replace(/'/g, "''")}'`);
+  }
+
+  if (matchedSourceCountry) {
+    rows = rows.filter((row) => row.sourceCountry === matchedSourceCountry);
+    filters.push(`source_country = '${matchedSourceCountry.replace(/'/g, "''")}'`);
+  }
+
   return {
     matchedMarket,
     matchedCategory,
+    matchedSegment,
+    matchedSourceCountry,
     rows,
     sqlPreview: `SELECT brand, category, launch_market, status, next_step FROM opportunities${
       filters.length ? ` WHERE ${filters.join(" AND ")}` : ""
     };`
+  };
+}
+
+function buildDimensionAnswer(payload: DashboardPayload, query: string, text: string): AgentResponse {
+  const dimensionResult = filterByDimension(payload, text);
+  let rows = dimensionResult.rows;
+  let stageToken = "";
+
+  const stageMatchers = ["commercials", "mql", "sql", "leads", "lead", "new", "hold", "reject"];
+  const stageMatch = stageMatchers.find((token) => text.includes(token));
+  if (stageMatch) {
+    stageToken =
+      stageMatch === "leads" || stageMatch === "lead"
+        ? "Leads"
+        : stageMatch === "commercials"
+          ? "Commercials"
+          : stageMatch.toUpperCase();
+    if (stageMatch === "hold" || stageMatch === "reject" || stageMatch === "new") {
+      stageToken = stageMatch.charAt(0).toUpperCase() + stageMatch.slice(1);
+    }
+    rows = rows.filter((row) => normalize(row.status) === normalize(stageToken));
+  }
+
+  const opportunityCount = rows.length;
+  const brands = uniqueBrandCount(rows);
+  const descriptor = [
+    dimensionResult.matchedMarket,
+    dimensionResult.matchedCategory,
+    dimensionResult.matchedSegment,
+    dimensionResult.matchedSourceCountry,
+    stageToken
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const answer = includesAny(text, ["how many", "count", "number of"])
+    ? includesAny(text, ["brand", "brands"])
+      ? `${brands} brands match ${descriptor || "the current filter"}, covering ${opportunityCount} opportunities.`
+      : `${opportunityCount} opportunities match ${descriptor || "the current filter"}, covering ${brands} brands.`
+    : opportunityCount > 0
+      ? `${opportunityCount} opportunities match ${descriptor || "your request"}, covering ${brands} brands. The biggest names in this slice are ${getTopValues(rows, (row) => row.brand)
+          .map(([brand, count]) => `${brand} (${count})`)
+          .join(", ")}.`
+      : "No opportunities matched that request.";
+
+  const sqlPreview = `${dimensionResult.sqlPreview.replace(/;$/, "")}${
+    stageToken ? `${dimensionResult.sqlPreview.includes("WHERE") ? " AND" : " WHERE"} status = '${stageToken}'` : ""
+  };`;
+
+  return {
+    ok: true,
+    query,
+    answer,
+    sqlPreview,
+    resultType: "opportunities",
+    rows: uniqueRows(rows).map((row) => formatRow(row)).slice(0, 12),
+    suggestions: buildSuggestionList([
+      dimensionResult.matchedMarket ? `Show all brands in ${dimensionResult.matchedMarket}` : "Show all brands in SEA",
+      dimensionResult.matchedCategory ? `Show all ${dimensionResult.matchedCategory} brands` : "Show all skincare brands",
+      stageToken ? `Show all ${stageToken.toLowerCase()} opportunities` : "Show brands in MQL",
+      "What should I focus on this week?"
+    ])
+  };
+}
+
+function buildPortfolioAnswer(payload: DashboardPayload, query: string, text: string): AgentResponse {
+  const performance = payload.performance;
+  const marketLeaders = getTopValues(performance, (row) => row.launchMarket, 3);
+  const categoryLeaders = getTopValues(performance, (row) => row.category, 3);
+  const segmentLeaders = getTopValues(performance, (row) => row.segment || "Unknown", 3);
+  const holdRows = performance.filter((row) => row.status === "Hold");
+  const lateStageRows = performance.filter((row) => ["Commercials", "OD", "Contract", "Onboarding"].includes(row.status));
+  const oldestRows = [...performance]
+    .filter((row) => row.status !== "Reject")
+    .sort((left, right) => right.workingDays - left.workingDays)
+    .slice(0, 5);
+
+  let answer = `${performance.length} opportunities are currently tracked across ${uniqueBrandCount(performance)} brands. `;
+
+  if (includesAny(text, ["market", "region", "country"])) {
+    answer += `The biggest market concentrations are ${marketLeaders.map(([name, count]) => `${name} (${count})`).join(", ")}. `;
+  } else if (includesAny(text, ["category", "categories"])) {
+    answer += `The biggest category concentrations are ${categoryLeaders.map(([name, count]) => `${name} (${count})`).join(", ")}. `;
+  } else if (includesAny(text, ["segment"])) {
+    answer += `The portfolio mix is led by ${segmentLeaders.map(([name, count]) => `${name} (${count})`).join(", ")}. `;
+  } else if (includesAny(text, ["brand", "brands", "portfolio", "business", "pipeline", "overall"])) {
+    answer += `The largest market buckets are ${marketLeaders.map(([name, count]) => `${name} (${count})`).join(", ")} and the biggest categories are ${categoryLeaders
+      .map(([name, count]) => `${name} (${count})`)
+      .join(", ")}. `;
+  }
+
+  answer += `${holdRows.length} opportunities are on hold, while ${lateStageRows.length} are in late-stage progress. `;
+  if (oldestRows.length) {
+    answer += `The oldest active names are ${oldestRows.slice(0, 3).map((row) => `${row.brand} (${row.workingDays} days)`).join(", ")}.`;
+  }
+
+  return {
+    ok: true,
+    query,
+    answer: answer.trim(),
+    sqlPreview: "SELECT launch_market, category, segment, status, COUNT(*) FROM opportunities GROUP BY 1,2,3,4;",
+    resultType: "insights",
+    rows: oldestRows.map((row) => formatRow(row)).slice(0, 5),
+    suggestions: buildSuggestionList([
+      "Which market is most stuck?",
+      "Which categories are strongest?",
+      "Show brands on hold",
+      "What should I focus on this week?"
+    ])
+  };
+}
+
+export function buildAgentContext(payload: DashboardPayload) {
+  const performance = payload.performance;
+  const statusCounts = getTopValues(performance, (row) => row.status, 20);
+  const marketCounts = getTopValues(performance, (row) => row.launchMarket, 10);
+  const categoryCounts = getTopValues(performance, (row) => row.category, 10);
+  const segmentCounts = getTopValues(performance, (row) => row.segment || "Unknown", 10);
+  const holdReasonCounts = getTopValues(
+    performance.filter((row) => row.status === "Hold"),
+    (row) => row.holdReason || "Unspecified",
+    10
+  );
+  const staleOpportunities = [...performance]
+    .filter((row) => row.status !== "Reject")
+    .sort((left, right) => right.workingDays - left.workingDays)
+    .slice(0, 10)
+    .map((row) => ({
+      brand: row.brand,
+      market: row.launchMarket,
+      status: row.status,
+      category: row.category,
+      workingDays: row.workingDays,
+      nextStep: row.nextStep
+    }));
+
+  return {
+    overview: {
+      totalOpportunities: performance.length,
+      uniqueBrands: uniqueBrandCount(performance),
+      holdCount: performance.filter((row) => row.status === "Hold").length,
+      lateStageCount: performance.filter((row) => ["Commercials", "OD", "Contract", "Onboarding"].includes(row.status)).length
+    },
+    statusCounts,
+    marketCounts,
+    categoryCounts,
+    segmentCounts,
+    holdReasonCounts,
+    staleOpportunities,
+    exampleOpportunities: performance.slice(0, 30).map((row) => ({
+      brand: row.brand,
+      market: row.launchMarket,
+      status: row.status,
+      category: row.category,
+      segment: row.segment,
+      nextStep: row.nextStep,
+      workingDays: row.workingDays
+    })),
+    legalQueue: payload.legalQueue.slice(0, 20).map((item) => ({
+      brand: item.brand,
+      market: item.market,
+      ndaStatus: item.ndaStatus,
+      requestedAction: item.requestedAction
+    })),
+    inboxUpdates: payload.inboxUpdates.slice(0, 20).map((item) => ({
+      brand: item.brand,
+      subject: item.subject,
+      summary: item.summary,
+      actionNeeded: item.actionNeeded
+    }))
   };
 }
 
@@ -192,7 +398,7 @@ function buildFocusAnswer(payload: DashboardPayload, query: string): AgentRespon
 
 export function runLocalAgentQuery(payload: DashboardPayload, rawQuery: string): AgentResponse {
   const query = rawQuery.trim();
-  const text = query.toLowerCase();
+  const text = normalize(query);
 
   if (!query) {
     return {
@@ -371,52 +577,16 @@ export function runLocalAgentQuery(payload: DashboardPayload, rawQuery: string):
     };
   }
 
-  if (includesAny(text, ["hold", "paused", "commercial", "mql", "sql", "lead", "new", "reject", "market", "category"])) {
-    const dimensionResult = filterByDimension(payload, text);
-    let rows = dimensionResult.rows;
-    let stageToken = "";
-
-    const stageMatchers = ["commercials", "mql", "sql", "leads", "new", "hold", "reject"];
-    const stageMatch = stageMatchers.find((token) => text.includes(token));
-    if (stageMatch) {
-      stageToken = stageMatch === "leads" ? "Leads" : stageMatch === "commercials" ? "Commercials" : stageMatch.toUpperCase();
-      if (stageMatch === "hold" || stageMatch === "reject" || stageMatch === "new") {
-        stageToken = stageMatch.charAt(0).toUpperCase() + stageMatch.slice(1);
-      }
-      rows = rows.filter((row) => normalize(row.status) === normalize(stageToken));
-    }
-
-    const sqlPreview = `${dimensionResult.sqlPreview.replace(/;$/, "")}${
-      stageToken ? `${dimensionResult.sqlPreview.includes("WHERE") ? " AND" : " WHERE"} status = '${stageToken}'` : ""
-    };`;
-
-    return {
-      ok: true,
-      query,
-      answer:
-        rows.length > 0
-          ? `${rows.length} opportunities matched your request.`
-          : "No opportunities matched that request.",
-      sqlPreview,
-      resultType: "opportunities",
-      rows: uniqueRows(rows).map((row) => formatRow(row)).slice(0, 12),
-      suggestions: ["Show brands in MQL", "Show brands in commercials", "Show all brands in SEA"]
-    };
+  const dimensionResult = filterByDimension(payload, text);
+  if (
+    includesAny(text, ["hold", "paused", "commercial", "mql", "sql", "lead", "new", "reject", "market", "category", "segment", "country", "region", "brand", "brands", "how many", "count", "number of"]) ||
+    dimensionResult.matchedMarket ||
+    dimensionResult.matchedCategory ||
+    dimensionResult.matchedSegment ||
+    dimensionResult.matchedSourceCountry
+  ) {
+    return buildDimensionAnswer(payload, query, text);
   }
 
-  return {
-    ok: true,
-    query,
-    answer:
-      "I could not map that request cleanly yet. Ask about any brand, legal state, term sheet, email update, market, category, or next step.",
-    sqlPreview: "SELECT brand, status, next_step FROM brand_360 LIMIT 10;",
-    resultType: "overview",
-    rows: [],
-    suggestions: [
-      "What is happening with Beardo?",
-      "Show brands waiting for NDA details",
-      "Show all skincare brands",
-      "What should I focus on this week?"
-    ]
-  };
+  return buildPortfolioAnswer(payload, query, text);
 }
