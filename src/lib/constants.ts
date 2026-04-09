@@ -1,19 +1,23 @@
-import { BarChart3, Database, FileText, Lock, Scale, Sparkles } from "lucide-react";
+import { BarChart3, Brain, FileText, ImageIcon, Map, Package, TrendingUp } from "lucide-react";
 
 export interface NavItem {
   label: string;
   icon: typeof BarChart3;
-  active?: boolean;
-  comingSoon?: boolean;
+  path: string;
+  section?: "workspace" | "growth";
+  badge?: string;
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { label: "Dashboard", icon: BarChart3, active: true },
-  { label: "Data Sources", icon: Database, comingSoon: true },
-  { label: "AI Insights", icon: Sparkles, comingSoon: true },
-  { label: "Legal", icon: Scale, comingSoon: true },
-  { label: "Documents", icon: FileText, comingSoon: true },
-  { label: "Access Control", icon: Lock, comingSoon: true }
+  // Workspace
+  { label: "Dashboard",      icon: BarChart3,  path: "/",                      section: "workspace" },
+  { label: "Brand 360",      icon: FileText,   path: "/brand/brand-nudestix",  section: "workspace" },
+  { label: "Intelligence",   icon: Brain,      path: "/intel",                 section: "workspace" },
+  { label: "Image Studio",   icon: ImageIcon,  path: "/studio",                section: "workspace" },
+  // Growth
+  { label: "Strategy",       icon: Map,        path: "/strategy",              section: "growth",  badge: "NEW" },
+  { label: "Mosaic Bridge",  icon: Package,    path: "/mosaic",                section: "growth",  badge: "NEW" },
+  { label: "Revenue Suite",  icon: TrendingUp, path: "/revenue",               section: "growth",  badge: "NEW" },
 ];
 
 export const REQUIRED_HEADERS = [

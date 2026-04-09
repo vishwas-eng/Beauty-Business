@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "lumara-dev",
+      "runtimeExecutable": "/opt/homebrew/opt/node@25/bin/node",
+      "runtimeArgs": ["/Users/vishwaspandey/Documents/Playground/node_modules/.bin/vite", "--port", "5173"],
+      "port": 5173
+    }
+  ]
+}

@@ -19,14 +19,21 @@ import { CategoryBreakdown, TrendPoint } from "../types/domain";
 import { formatNumber } from "../lib/format";
 
 const stagePalette: Record<string, string> = {
-  Leads: "#b7aca0",
-  MQL: "#8ea79a",
-  SQL: "#9faf86",
-  Commercials: "#6e8b78",
-  Hold: "#c59a63",
-  Reject: "#b87474",
-  New: "#d9d2c7",
-  Unclassified: "#d9d2c7"
+  Leads: "#3b82f6",
+  MQL: "#14b8a6",
+  SQL: "#22c55e",
+  Commercials: "#6366f1",
+  Hold: "#f59e0b",
+  Reject: "#ef4444",
+  New: "#94a3b8",
+  Unclassified: "#94a3b8"
+};
+
+const tooltipStyle = {
+  borderRadius: 10,
+  border: "1px solid #e5e7eb",
+  background: "#ffffff",
+  boxShadow: "0 4px 12px rgba(0,0,0,0.08)"
 };
 
 export function RevenueTrendChart({ data }: { data: TrendPoint[] }) {
@@ -41,41 +48,38 @@ export function RevenueTrendChart({ data }: { data: TrendPoint[] }) {
       <div className="chart-wrap">
         <ResponsiveContainer width="100%" height={280}>
           <AreaChart data={data}>
-            <CartesianGrid stroke="#e3ddd3" vertical={false} />
-            <XAxis dataKey="label" stroke="#7b8076" />
-            <YAxis yAxisId="left" stroke="#7b8076" tickFormatter={formatNumber} />
-            <YAxis yAxisId="right" orientation="right" stroke="#7b8076" />
-            <Tooltip
-              contentStyle={{ borderRadius: 16, border: "1px solid #d9d2c7", background: "#fffdf9" }}
-              formatter={(value: number, name: string) => [formatNumber(value), name]}
-            />
+            <CartesianGrid stroke="#e5e7eb" vertical={false} />
+            <XAxis dataKey="label" stroke="#6b7280" tick={{ fontSize: 11 }} />
+            <YAxis yAxisId="left" stroke="#6b7280" tickFormatter={formatNumber} />
+            <YAxis yAxisId="right" orientation="right" stroke="#6b7280" />
+            <Tooltip contentStyle={tooltipStyle} formatter={(value: number, name: string) => [formatNumber(value), name]} />
             <Legend />
             <Area
               yAxisId="right"
               dataKey="secondary"
               name="Working days"
               type="monotone"
-              stroke="#c8c2b5"
-              fill="#f3efe7"
-              fillOpacity={1}
+              stroke="#94a3b8"
+              fill="#f1f5f9"
+              fillOpacity={0.8}
             />
             <Line
               yAxisId="left"
               type="monotone"
               dataKey="primary"
               name="Opportunities"
-              stroke="#738774"
+              stroke="#3b82f6"
               strokeWidth={2.5}
-              dot={{ r: 3, fill: "#738774" }}
+              dot={{ r: 3, fill: "#3b82f6" }}
             />
             <Line
               yAxisId="left"
               type="monotone"
               dataKey="tertiary"
               name="Avg transition days"
-              stroke="#a28669"
+              stroke="#f59e0b"
               strokeWidth={2}
-              dot={{ r: 2.5, fill: "#a28669" }}
+              dot={{ r: 2.5, fill: "#f59e0b" }}
             />
           </AreaChart>
         </ResponsiveContainer>
@@ -97,7 +101,7 @@ export function CategoryBarChart({
   keyName: "revenue" | "inventoryValue";
   valueLabel?: string;
 }) {
-  const colors = ["#7f9482", "#9eae96", "#b8c2ab", "#cdbfa9", "#ddd4c7", "#b7aca0"];
+  const colors = ["#3b82f6", "#14b8a6", "#8b5cf6", "#f59e0b", "#22c55e", "#ec4899"];
 
   return (
     <section className="panel">
@@ -110,14 +114,11 @@ export function CategoryBarChart({
       <div className="chart-wrap">
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={data} layout="vertical">
-            <CartesianGrid stroke="#eee8dd" horizontal={false} />
-            <XAxis type="number" stroke="#7b8076" />
-            <YAxis type="category" dataKey="category" width={96} stroke="#7b8076" tick={{ fontSize: 11 }} />
-            <Tooltip
-              contentStyle={{ borderRadius: 16, border: "1px solid #d9d2c7", background: "#fffdf9" }}
-              formatter={(value: number) => [formatNumber(value), valueLabel]}
-            />
-            <Bar dataKey={keyName} name={valueLabel} radius={[0, 12, 12, 0]}>
+            <CartesianGrid stroke="#e5e7eb" horizontal={false} />
+            <XAxis type="number" stroke="#6b7280" />
+            <YAxis type="category" dataKey="category" width={96} stroke="#6b7280" tick={{ fontSize: 11 }} />
+            <Tooltip contentStyle={tooltipStyle} formatter={(value: number) => [formatNumber(value), valueLabel]} />
+            <Bar dataKey={keyName} name={valueLabel} radius={[0, 8, 8, 0]}>
               {data.map((item, index) => (
                 <Cell key={item.category} fill={colors[index % colors.length]} />
               ))}
@@ -145,20 +146,17 @@ export function BrandReadinessChart({
       <div className="chart-wrap">
         <ResponsiveContainer width="100%" height={250}>
           <LineChart data={data}>
-            <CartesianGrid stroke="#eee8dd" horizontal={false} />
-            <XAxis dataKey="brand" stroke="#7b8076" tick={{ fontSize: 11 }} />
-            <YAxis stroke="#7b8076" domain={[0, 100]} />
-            <Tooltip
-              contentStyle={{ borderRadius: 16, border: "1px solid #d9d2c7", background: "#fffdf9" }}
-              formatter={(value: number) => `${formatNumber(value)}%`}
-            />
+            <CartesianGrid stroke="#e5e7eb" horizontal={false} />
+            <XAxis dataKey="brand" stroke="#6b7280" tick={{ fontSize: 11 }} />
+            <YAxis stroke="#6b7280" domain={[0, 100]} />
+            <Tooltip contentStyle={tooltipStyle} formatter={(value: number) => `${formatNumber(value)}%`} />
             <Line
               type="monotone"
               dataKey="progress"
               name="Readiness"
-              stroke="#7b8f7c"
+              stroke="#6366f1"
               strokeWidth={2.5}
-              dot={{ r: 4, fill: "#7b8f7c" }}
+              dot={{ r: 4, fill: "#6366f1" }}
             />
           </LineChart>
         </ResponsiveContainer>
@@ -183,18 +181,15 @@ export function CycleTimeChart({
       <div className="chart-wrap">
         <ResponsiveContainer width="100%" height={250}>
           <AreaChart data={data}>
-            <CartesianGrid stroke="#eee8dd" vertical={false} />
-            <XAxis dataKey="brand" stroke="#7b8076" tick={{ fontSize: 11 }} />
-            <YAxis stroke="#7b8076" />
-            <Tooltip
-              contentStyle={{ borderRadius: 16, border: "1px solid #d9d2c7", background: "#fffdf9" }}
-              formatter={(value: number) => `${formatNumber(value)} days`}
-            />
+            <CartesianGrid stroke="#e5e7eb" vertical={false} />
+            <XAxis dataKey="brand" stroke="#6b7280" tick={{ fontSize: 11 }} />
+            <YAxis stroke="#6b7280" />
+            <Tooltip contentStyle={tooltipStyle} formatter={(value: number) => `${formatNumber(value)} days`} />
             <Area
               type="monotone"
               dataKey="workingDays"
-              stroke="#b38f6f"
-              fill="#f1e8dc"
+              stroke="#ef4444"
+              fill="rgba(239, 68, 68, 0.1)"
               fillOpacity={1}
             />
           </AreaChart>
@@ -226,15 +221,13 @@ export function StageStackedChart({
       <div className="chart-wrap">
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={data}>
-            <CartesianGrid stroke="#eee8dd" vertical={false} />
-            <XAxis dataKey="name" stroke="#7b8076" tick={{ fontSize: 11 }} />
-            <YAxis stroke="#7b8076" />
-            <Tooltip
-              contentStyle={{ borderRadius: 16, border: "1px solid #d9d2c7", background: "#fffdf9" }}
-            />
+            <CartesianGrid stroke="#e5e7eb" vertical={false} />
+            <XAxis dataKey="name" stroke="#6b7280" tick={{ fontSize: 11 }} />
+            <YAxis stroke="#6b7280" />
+            <Tooltip contentStyle={tooltipStyle} />
             <Legend />
             {stages.map((stage) => (
-              <Bar key={stage} dataKey={stage} stackId="stage" fill={stagePalette[stage]} radius={stage === "New" ? [6, 6, 0, 0] : 0} />
+              <Bar key={stage} dataKey={stage} stackId="stage" fill={stagePalette[stage]} radius={stage === "New" ? [4, 4, 0, 0] : 0} />
             ))}
           </BarChart>
         </ResponsiveContainer>
@@ -254,7 +247,7 @@ export function DonutBreakdownChart({
   data: CategoryBreakdown[];
   valueLabel?: string;
 }) {
-  const colors = ["#6e8b78", "#c59a63", "#b87474", "#d9d2c7", "#8ea79a"];
+  const colors = ["#3b82f6", "#f59e0b", "#ef4444", "#14b8a6", "#8b5cf6", "#ec4899", "#22c55e"];
 
   return (
     <section className="panel">
@@ -279,10 +272,7 @@ export function DonutBreakdownChart({
                 <Cell key={entry.category} fill={colors[index % colors.length]} />
               ))}
             </Pie>
-            <Tooltip
-              contentStyle={{ borderRadius: 16, border: "1px solid #d9d2c7", background: "#fffdf9" }}
-              formatter={(value: number) => [formatNumber(value), valueLabel]}
-            />
+            <Tooltip contentStyle={tooltipStyle} formatter={(value: number) => [formatNumber(value), valueLabel]} />
             <Legend />
           </PieChart>
         </ResponsiveContainer>
@@ -337,7 +327,7 @@ export function HeatmapChart({
                   key={`${row}-${column}`}
                   className="heatmap-cell"
                   style={{
-                    background: `rgba(110, 139, 120, ${0.14 + intensity * 0.5})`
+                    background: `rgba(99, 102, 241, ${0.08 + intensity * 0.45})`
                   }}
                   title={`${row} · ${column}: ${value}`}
                 >

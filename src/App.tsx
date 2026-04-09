@@ -2,6 +2,12 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./layout/AppShell";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { DashboardPage } from "./routes/DashboardPage";
+import { BrandPage } from "./routes/BrandPage";
+import { IntelPage } from "./routes/IntelPage";
+import { ImageStudioPage } from "./routes/ImageStudioPage";
+import { StrategyPage } from "./routes/StrategyPage";
+import { MosaicBridgePage } from "./routes/MosaicBridgePage";
+import { RevenuePage } from "./routes/RevenuePage";
 import { LoginPage } from "./routes/LoginPage";
 
 function ProtectedRoutes() {
@@ -19,6 +25,12 @@ function ProtectedRoutes() {
     <AppShell>
       <Routes>
         <Route path="/" element={<DashboardPage />} />
+        <Route path="/brand/:brandId" element={<BrandPage />} />
+        <Route path="/intel" element={<IntelPage />} />
+        <Route path="/studio" element={<ImageStudioPage />} />
+        <Route path="/strategy" element={<StrategyPage />} />
+        <Route path="/mosaic" element={<MosaicBridgePage />} />
+        <Route path="/revenue" element={<RevenuePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppShell>

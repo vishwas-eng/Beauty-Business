@@ -12,26 +12,23 @@ import { hasSupabaseEnv, supabase } from "./supabase";
 interface AuthContextValue {
   session: SessionUser | null;
   loading: boolean;
-  signIn(email: string): Promise<{ ok: boolean; message: string }>;
+  signIn(email: string, password: string): Promise<{ ok: boolean; message: string }>;
+  signUp(email: string, password: string): Promise<{ ok: boolean; message: string }>;
+  signInWithGoogle(): Promise<{ ok: boolean; message: string }>;
   signOut(): Promise<void>;
 }
 
 const DEMO_SESSION_KEY = "beauty-tracker-demo-session";
-const ALLOWED_DOMAIN = "opptra.com";
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function isAllowedEmail(email: string) {
-  return email.trim().toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`);
-}
-
-function buildDemoSession(email = `demo@${ALLOWED_DOMAIN}`): SessionUser {
+function buildSession(email: string, demoMode: boolean): SessionUser {
   return {
     email,
     role: "admin",
-    workspaceId: "workspace-demo",
+    workspaceId: "workspace-default",
     workspaceName: "Beauty Business Tracker",
-    demoMode: true
+    demoMode
   };
 }
 
@@ -42,9 +39,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!hasSupabaseEnv || !supabase) {
       const saved = localStorage.getItem(DEMO_SESSION_KEY);
-      const nextSession = saved ? (JSON.parse(saved) as SessionUser) : null;
-      if (nextSession?.email && isAllowedEmail(nextSession.email)) {
-        setSession(nextSession);
+      const next = saved ? (JSON.parse(saved) as SessionUser) : null;
+      if (next?.email) {
+        setSession(next);
       } else {
         localStorage.removeItem(DEMO_SESSION_KEY);
         setSession(null);
@@ -53,42 +50,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const supabaseClient = supabase;
+    const client = supabase;
 
-    supabaseClient.auth.getUser().then(({ data }) => {
+    client.auth.getUser().then(({ data }) => {
       if (data.user?.email) {
-        if (isAllowedEmail(data.user.email)) {
-          setSession({
-            email: data.user.email,
-            role: "admin",
-            workspaceId: "workspace-demo",
-            workspaceName: "Beauty Business Tracker",
-            demoMode: false
-          });
-        } else {
-          void supabaseClient.auth.signOut();
-          setSession(null);
-        }
+        setSession(buildSession(data.user.email, false));
       }
       setLoading(false);
     });
 
     const {
       data: { subscription }
-    } = supabaseClient.auth.onAuthStateChange((_event, authSession) => {
+    } = client.auth.onAuthStateChange((_event, authSession) => {
       if (authSession?.user?.email) {
-        if (isAllowedEmail(authSession.user.email)) {
-          setSession({
-            email: authSession.user.email,
-            role: "admin",
-            workspaceId: "workspace-demo",
-            workspaceName: "Beauty Business Tracker",
-            demoMode: false
-          });
-        } else {
-          setSession(null);
-          void supabaseClient.auth.signOut();
-        }
+        setSession(buildSession(authSession.user.email, false));
       } else {
         setSession(null);
       }
@@ -101,41 +76,69 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       session,
       loading,
-      async signIn(email: string) {
-        if (!isAllowedEmail(email)) {
-          return {
-            ok: false,
-            message: `Only @${ALLOWED_DOMAIN} email addresses can access this workspace.`
-          };
-        }
 
+      async signIn(email: string, password: string) {
         if (!hasSupabaseEnv || !supabase) {
-          const demoSession = buildDemoSession(email);
-          localStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(demoSession));
-          setSession(demoSession);
-          return { ok: true, message: "Demo session started locally." };
+          const demo = buildSession(email, true);
+          localStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(demo));
+          setSession(demo);
+          return { ok: true, message: "Demo session started." };
         }
 
-        const { error } = await supabase.auth.signInWithOtp({
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) {
+          return { ok: false, message: error.message };
+        }
+        return { ok: true, message: "Signed in." };
+      },
+
+      async signUp(email: string, password: string) {
+        if (!hasSupabaseEnv || !supabase) {
+          const demo = buildSession(email, true);
+          localStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(demo));
+          setSession(demo);
+          return { ok: true, message: "Demo session started." };
+        }
+
+        const { error } = await supabase.auth.signUp({
           email,
+          password,
           options: {
             emailRedirectTo: import.meta.env.VITE_SITE_URL ?? window.location.origin
           }
         });
-
         if (error) {
           return { ok: false, message: error.message };
         }
-
-        return { ok: true, message: "Magic link sent to your email." };
+        return { ok: true, message: "Check your email for a confirmation link." };
       },
+
+      async signInWithGoogle() {
+        if (!hasSupabaseEnv || !supabase) {
+          const demo = buildSession("demo@google.com", true);
+          localStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(demo));
+          setSession(demo);
+          return { ok: true, message: "Demo session started." };
+        }
+
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: {
+            redirectTo: import.meta.env.VITE_SITE_URL ?? window.location.origin
+          }
+        });
+        if (error) {
+          return { ok: false, message: error.message };
+        }
+        return { ok: true, message: "Redirecting to Google..." };
+      },
+
       async signOut() {
         if (!hasSupabaseEnv || !supabase) {
           localStorage.removeItem(DEMO_SESSION_KEY);
           setSession(null);
           return;
         }
-
         await supabase.auth.signOut();
       }
     }),

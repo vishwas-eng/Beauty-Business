@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, RefreshCcw, Workflow } from "lucide-react";
+import { Check, ChevronDown, Copy, Download, RefreshCcw, Sparkles, Workflow, X, Zap } from "lucide-react";
 import {
   CategoryBarChart,
   CycleTimeChart,
@@ -11,8 +11,9 @@ import {
 import { KpiCard } from "../components/KpiCard";
 import { PerformanceTable } from "../components/PerformanceTable";
 import { TimeRangeTabs } from "../components/TimeRangeTabs";
-import { fetchDashboard, refreshSource, runAutomation } from "../lib/api";
+import { fetchDashboard, queryAgent, refreshSource, runAutomation } from "../lib/api";
 import { formatDateTime } from "../lib/format";
+import { findCompetitiveOverlaps } from "../lib/scoring";
 import { DashboardPayload, PerformanceRow, TimeRange } from "../types/domain";
 
 const ACTIVE_STATUSES = ["Leads", "Lead", "MQL", "SQL", "Commercials", "OD", "Contract", "Onboarding"];
@@ -196,6 +197,12 @@ export function DashboardPage() {
   const [automationBusy, setAutomationBusy] = useState(false);
   const [marketFilter, setMarketFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [briefOpen, setBriefOpen] = useState(false);
+  const [briefText, setBriefText] = useState("");
+  const [briefLoading, setBriefLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [oppsText, setOppsText] = useState("");
+  const [oppsLoading, setOppsLoading] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -217,6 +224,37 @@ export function DashboardPage() {
     const next = await fetchDashboard(range);
     setPayload(next);
     setAutomationBusy(false);
+  }
+
+  async function generateBrief() {
+    setBriefOpen(true);
+    setBriefLoading(true);
+    setBriefText("");
+    const res = await queryAgent(
+      "Generate a concise weekly executive brief for our beauty brand pipeline. Write as a senior analyst briefing a VP before a Monday meeting. Include: 1) One-line pipeline snapshot with key numbers, 2) Top 2 risks or blockers with specific brand/market examples, 3) Late-stage pipeline update, 4) 3 recommended actions for this week. Under 200 words. Be direct and specific."
+    );
+    setBriefText(res.answer);
+    setBriefLoading(false);
+  }
+
+  function copyBrief() {
+    void navigator.clipboard.writeText(briefText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function scanOpportunities() {
+    setOppsLoading(true);
+    setOppsText("");
+    const res = await queryAgent(
+      "Scan the pipeline and identify 3-5 proactive opportunities we are missing or should act on urgently. Look for: open market slots with no brand in that category yet, brands that are close to closing with no next step set, categories that are underrepresented in a key market, and any quick wins we could unlock this week. Be specific — name actual brands and markets. Format as a numbered list."
+    );
+    setOppsText(res.answer);
+    setOppsLoading(false);
+  }
+
+  function exportPipeline() {
+    window.print();
   }
 
   if (loading || !payload) {
@@ -346,6 +384,17 @@ export function DashboardPage() {
   const totalOpportunities = filteredRows.length;
   const uniqueBrands = countUniqueBrands(filteredRows);
   const holdPercent = totalOpportunities ? Math.round((holdRows.length / totalOpportunities) * 100) : 0;
+  const competitiveOverlaps = findCompetitiveOverlaps(filteredRows);
+  const rowsWithNextStep = filteredRows.filter((row) => row.nextStep?.trim()).length;
+  const healthScore = Math.round(
+    Math.min((activeRows.length / Math.max(totalOpportunities, 1)) * 30, 30) +
+    (lateStageRows.length > 0 ? 20 : 0) +
+    Math.min((1 - holdRows.length / Math.max(totalOpportunities, 1)) * 20, 20) +
+    Math.min((1 - Math.min(staleRows.length / Math.max(totalOpportunities, 1), 1)) * 15, 15) +
+    Math.min((rowsWithNextStep / Math.max(totalOpportunities, 1)) * 15, 15)
+  );
+  const healthTone = healthScore >= 75 ? "green" : healthScore >= 50 ? "orange" : "danger";
+  const healthLabel = healthScore >= 75 ? "Healthy" : healthScore >= 50 ? "Needs attention" : "At risk";
   const executiveMetrics = [
     {
       label: "Total Opportunities",
@@ -504,6 +553,15 @@ export function DashboardPage() {
             <Workflow size={16} />
             {automationBusy ? "Running automation..." : "Run automation"}
           </button>
+          <button className="primary-button" onClick={() => void generateBrief()} type="button">
+            <Sparkles size={15} />
+            Weekly Brief
+            <span className="beta-badge" style={{ marginLeft: 2 }}>BETA</span>
+          </button>
+          <button className="secondary-button" onClick={exportPipeline} type="button" title="Export pipeline as PDF">
+            <Download size={15} />
+            Export
+          </button>
         </div>
       </div>
 
@@ -528,6 +586,23 @@ export function DashboardPage() {
             <span>{uniqueBrands} brands</span>
             <span>{holdPercent}% on hold</span>
             <span>{staleRows.length} stale over 45 days</span>
+          </div>
+          <div className="health-score-row">
+            <div className="health-score-info">
+              <span>Pipeline Health</span>
+              <span className="beta-badge">BETA</span>
+            </div>
+            <div className="health-score-track">
+              <div
+                className="health-score-fill"
+                style={{
+                  width: `${healthScore}%`,
+                  background: healthTone === "green" ? "var(--green)" : healthTone === "orange" ? "var(--orange)" : "var(--danger)"
+                }}
+              />
+            </div>
+            <span className={`health-score-value health-score-${healthTone}`}>{healthScore}/100</span>
+            <span className="health-score-label-value">{healthLabel}</span>
           </div>
         </div>
       </section>
@@ -662,6 +737,96 @@ export function DashboardPage() {
           subtitle="All opportunities in the current view."
         />
       </section>
+
+      {competitiveOverlaps.length > 0 && (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="title-row">
+                <h2>Competitive Overlaps</h2>
+                <span className="beta-badge">BETA</span>
+              </div>
+              <p>{competitiveOverlaps.length} category–market combinations with multiple active brands competing for the same slot.</p>
+            </div>
+          </div>
+          <div className="overlap-grid">
+            {competitiveOverlaps.map((overlap) => (
+              <div key={`${overlap.category}||${overlap.market}`} className="overlap-card">
+                <div className="overlap-header">
+                  <strong>{overlap.category}</strong>
+                  <span className="overlap-market">{overlap.market}</span>
+                  <span className="overlap-count">{overlap.brands.length} brands</span>
+                </div>
+                <div className="overlap-brands">
+                  {overlap.brands.map((b) => (
+                    <span key={b.brand} className="overlap-brand-chip">{b.brand} · {b.status}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <div className="title-row">
+              <h2>Proactive Opportunities</h2>
+              <span className="beta-badge">BETA</span>
+            </div>
+            <p>AI scans the pipeline for gaps, quick wins, and untapped market slots.</p>
+          </div>
+          <button className="primary-button" onClick={() => void scanOpportunities()} disabled={oppsLoading} type="button">
+            <Zap size={15} />
+            {oppsLoading ? "Scanning..." : "Scan Now"}
+          </button>
+        </div>
+        {oppsLoading && (
+          <div className="brief-loading" style={{ marginTop: 16 }}>
+            <div className="brief-spinner" />
+            Scanning pipeline for opportunities...
+          </div>
+        )}
+        {oppsText && !oppsLoading && (
+          <div className="brief-text opps-text" style={{ marginTop: 16 }}>{oppsText}</div>
+        )}
+        {!oppsText && !oppsLoading && (
+          <p className="subdued" style={{ marginTop: 12 }}>Click Scan Now to get AI-powered opportunity recommendations based on current pipeline gaps.</p>
+        )}
+      </section>
+
+      {briefOpen ? (
+        <div className="brief-modal-overlay" onClick={() => setBriefOpen(false)}>
+          <div className="brief-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="brief-modal-header">
+              <div className="brief-modal-title">
+                <strong>AI Weekly Brief</strong>
+                <span className="beta-badge">BETA</span>
+              </div>
+              <button className="ghost-button agent-close-button" onClick={() => setBriefOpen(false)} type="button">
+                <X size={16} />
+              </button>
+            </div>
+            {briefLoading ? (
+              <div className="brief-loading">
+                <div className="brief-spinner" />
+                Generating your brief...
+              </div>
+            ) : (
+              <>
+                <div className="brief-text">{briefText}</div>
+                <div className="brief-footer">
+                  <button className="secondary-button" onClick={copyBrief} type="button">
+                    {copied ? <Check size={14} /> : <Copy size={14} />}
+                    {copied ? "Copied!" : "Copy to clipboard"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -10,7 +10,7 @@ import {
   TimeRange
 } from "../types/domain";
 import { liveDashboard } from "./liveSnapshot";
-import { runLocalAgentQuery } from "./agent";
+
 import {
   loadAutomationConfig,
   loadSourceConfig,
@@ -40,7 +40,7 @@ async function readJson<T>(path: string, init?: RequestInit) {
 
 export async function fetchDashboard(range: TimeRange) {
   try {
-    const payload = await readJson<DashboardPayload>(`/.netlify/functions/dashboard?range=${range}`);
+    const payload = await readJson<DashboardPayload>(`/api/dashboard?range=${range}`);
     if (!isValidDashboardPayload(payload)) {
       saveStoredDashboard(liveDashboard);
       return liveDashboard;
@@ -58,7 +58,7 @@ export async function fetchDashboard(range: TimeRange) {
 
 export async function generateInsights(range: TimeRange) {
   try {
-    return await readJson<{ insights: InsightItem[] }>("/.netlify/functions/generate-insights", {
+    return await readJson<{ insights: InsightItem[] }>("/api/generate-insights", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -72,7 +72,7 @@ export async function generateInsights(range: TimeRange) {
 
 export async function refreshSource(range: TimeRange) {
   try {
-    return await readJson<DashboardPayload>("/.netlify/functions/refresh-source", {
+    return await readJson<DashboardPayload>("/api/refresh-source", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -94,7 +94,7 @@ export async function persistSourceConfig(config: SourceConfig) {
   saveSourceConfig(config);
 
   try {
-    await readJson<{ ok: boolean }>("/.netlify/functions/save-source-config", {
+    await readJson<{ ok: boolean }>("/api/save-source-config", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -110,7 +110,7 @@ export async function persistSourceConfig(config: SourceConfig) {
 
 export async function getSourceConfig() {
   try {
-    return await readJson<SourceConfig>("/.netlify/functions/save-source-config");
+    return await readJson<SourceConfig>("/api/save-source-config");
   } catch {
     return loadSourceConfig();
   }
@@ -120,7 +120,7 @@ export async function persistAutomationConfig(config: AutomationConfig) {
   saveAutomationConfig(config);
 
   try {
-    await readJson<{ ok: boolean }>("/.netlify/functions/save-automation-config", {
+    await readJson<{ ok: boolean }>("/api/save-automation-config", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -136,7 +136,7 @@ export async function persistAutomationConfig(config: AutomationConfig) {
 
 export async function getAutomationConfig() {
   try {
-    return await readJson<AutomationConfig>("/.netlify/functions/save-automation-config");
+    return await readJson<AutomationConfig>("/api/save-automation-config");
   } catch {
     return loadAutomationConfig();
   }
@@ -144,7 +144,7 @@ export async function getAutomationConfig() {
 
 export async function runAutomation(range: TimeRange) {
   try {
-    return await readJson<AutomationRunResponse>("/.netlify/functions/run-automation", {
+    return await readJson<AutomationRunResponse>("/api/run-automation", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -169,7 +169,7 @@ export async function runAutomation(range: TimeRange) {
 
 export async function uploadRows(rows: NormalizedRow[]) {
   try {
-    return await readJson<{ ok: boolean; imported: number }>("/.netlify/functions/upload-excel", {
+    return await readJson<{ ok: boolean; imported: number }>("/api/upload-excel", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -189,7 +189,7 @@ export async function uploadRows(rows: NormalizedRow[]) {
 
 export async function runNdaWorkflow(brandId: string, action: "prepare" | "send", recipientEmail: string) {
   try {
-    return await readJson<NdaWorkflowResponse>("/.netlify/functions/prepare-nda", {
+    return await readJson<NdaWorkflowResponse>("/api/prepare-nda", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -293,14 +293,20 @@ export async function runNdaWorkflow(brandId: string, action: "prepare" | "send"
 
 export async function queryAgent(query: string) {
   try {
-    return await readJson<AgentResponse>("/.netlify/functions/query-agent", {
+    return await readJson<AgentResponse>("/api/query-agent", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query })
     });
   } catch {
-    return runLocalAgentQuery(loadStoredDashboard(), query);
+    return {
+      ok: false,
+      query,
+      answer: "Could not connect to the AI. Make sure ANTHROPIC_API_KEY is set in Netlify environment variables and the site is deployed.",
+      sqlPreview: "",
+      resultType: "overview" as const,
+      rows: [],
+      suggestions: []
+    };
   }
 }

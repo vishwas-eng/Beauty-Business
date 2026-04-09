@@ -1,46 +1,47 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { Bot, SendHorizontal, X } from "lucide-react";
 import { queryAgent } from "../lib/api";
-import { AgentResponse } from "../types/domain";
 
-const quickPrompts = [
-  "What should I focus on this week?",
-  "Show brands waiting for NDA details",
-  "What is happening with Beardo?"
+const starterChips = [
+  "What needs attention today?",
+  "Which brands are most at risk?",
+  "Summarize the pipeline",
+  "Which stage is the bottleneck?"
 ];
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  text: string;
+}
 
 export function SidebarAgent({ onClose }: { onClose?: () => void }) {
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
-  const [history, setHistory] = useState<
-    Array<{
-      role: "user" | "assistant";
-      text: string;
-      rows?: AgentResponse["rows"];
-      suggestions?: string[];
-    }>
-  >([]);
+  const [history, setHistory] = useState<ChatMessage[]>([]);
+  const chatRef = useRef<HTMLDivElement>(null);
 
-  async function runQuery(nextQuery: string) {
-    if (!nextQuery.trim()) {
-      return;
+  useEffect(() => {
+    if (chatRef.current) {
+      chatRef.current.scrollTop = chatRef.current.scrollHeight;
     }
+  }, [history, busy]);
 
+  async function send(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || busy) return;
+
+    setQuery("");
     setBusy(true);
-    setHistory((current) => [...current, { role: "user", text: nextQuery }]);
+    setHistory((prev) => [...prev, { role: "user", text: trimmed }]);
 
     try {
-      const next = await queryAgent(nextQuery);
-      setHistory((current) => [
-        ...current,
-        {
-          role: "assistant",
-          text: next.answer,
-          rows: next.rows.slice(0, 3),
-          suggestions: next.suggestions.slice(0, 2)
-        }
+      const res = await queryAgent(trimmed);
+      setHistory((prev) => [...prev, { role: "assistant", text: res.answer }]);
+    } catch {
+      setHistory((prev) => [
+        ...prev,
+        { role: "assistant", text: "Something went wrong. Please try again." }
       ]);
-      setQuery("");
     } finally {
       setBusy(false);
     }
@@ -48,7 +49,20 @@ export function SidebarAgent({ onClose }: { onClose?: () => void }) {
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    void runQuery(query);
+    void send(query);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void send(query);
+    }
+  }
+
+  function renderAssistantText(text: string) {
+    const sanitized = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const html = sanitized.replace(/\n/g, "<br/>");
+    return <span dangerouslySetInnerHTML={{ __html: html }} />;
   }
 
   return (
@@ -58,86 +72,73 @@ export function SidebarAgent({ onClose }: { onClose?: () => void }) {
           <Bot size={16} />
           <div>
             <strong>Ask AI</strong>
-            <p className="brand-subtitle">Ask about brands, markets, categories, stage, or next steps.</p>
+            <p className="brand-subtitle">
+              Ask anything about your pipeline, brands, or strategy.
+            </p>
           </div>
         </div>
         {onClose ? (
-          <button type="button" className="ghost-button agent-close-button" onClick={onClose} aria-label="Close AI chat">
+          <button
+            type="button"
+            className="ghost-button agent-close-button"
+            onClick={onClose}
+            aria-label="Close AI chat"
+          >
             <X size={16} />
           </button>
         ) : null}
       </div>
 
-      <div className="sidebar-agent-prompts">
-        {quickPrompts.map((prompt) => (
-          <button
-            key={prompt}
-            type="button"
-            className="ghost-button sidebar-agent-prompt"
-            onClick={() => void runQuery(prompt)}
-          >
-            {prompt}
-          </button>
-        ))}
-      </div>
+      {history.length === 0 ? (
+        <div className="sidebar-agent-prompts">
+          {starterChips.map((chip) => (
+            <button
+              key={chip}
+              type="button"
+              className="ghost-button sidebar-agent-prompt"
+              onClick={() => setQuery(chip)}
+            >
+              {chip}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
-      <div className="sidebar-agent-chat">
+      <div className="sidebar-agent-chat" ref={chatRef}>
         {history.length === 0 ? (
-          <div className="agent-empty-state">
+          <div className="agent-message agent-message-assistant">
             <div className="agent-bubble agent-bubble-assistant">
-              Ask anything about the current business view and I will answer from the latest dashboard data.
+              Ask anything about the current business view and I will answer
+              from the latest dashboard data.
             </div>
           </div>
         ) : (
-          history.slice(-8).map((item, index) => (
+          history.map((msg, i) => (
             <div
-              key={`${item.role}-${index}-${item.text.slice(0, 24)}`}
+              key={`${msg.role}-${i}`}
               className={
-                item.role === "user"
+                msg.role === "user"
                   ? "agent-message agent-message-user"
                   : "agent-message agent-message-assistant"
               }
             >
               <div
                 className={
-                  item.role === "user"
+                  msg.role === "user"
                     ? "agent-bubble agent-bubble-user"
                     : "agent-bubble agent-bubble-assistant"
                 }
               >
-                {item.text}
+                {msg.role === "user" ? msg.text : renderAssistantText(msg.text)}
               </div>
-              {item.role === "assistant" && item.rows && item.rows.length > 0 ? (
-                <div className="agent-inline-results">
-                  {item.rows.map((row, rowIndex) => (
-                    <div key={`${row.brand}-${rowIndex}`} className="agent-inline-card">
-                      <strong>{row.brand}</strong>
-                      <span>{row.stage ?? row.ndaStatus ?? row.market ?? "Update"}</span>
-                      {row.summary ? <p>{row.summary}</p> : null}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              {item.role === "assistant" && item.suggestions && item.suggestions.length > 0 ? (
-                <div className="agent-followups">
-                  {item.suggestions.map((suggestion) => (
-                    <button
-                      key={suggestion}
-                      type="button"
-                      className="ghost-button agent-followup-chip"
-                      onClick={() => void runQuery(suggestion)}
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
             </div>
           ))
         )}
         {busy ? (
           <div className="agent-message agent-message-assistant">
-            <div className="agent-bubble agent-bubble-assistant agent-typing">Thinking...</div>
+            <div className="agent-bubble agent-bubble-assistant agent-typing">
+              Thinking...
+            </div>
           </div>
         ) : null}
       </div>
@@ -145,9 +146,10 @@ export function SidebarAgent({ onClose }: { onClose?: () => void }) {
       <form className="sidebar-agent-form" onSubmit={handleSubmit}>
         <textarea
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder="Ask about any brand, market, category, or stage"
-          rows={3}
+          rows={2}
         />
         <button
           className="primary-button sidebar-agent-button"

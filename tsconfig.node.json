@@ -10,7 +10,7 @@
   },
   "include": [
     "vite.config.ts",
-    "netlify/functions/**/*.ts",
+    "api/**/*.ts",
     "src/lib/agent.ts",
     "src/lib/beautyTracker.ts",
     "src/lib/liveSnapshot.ts",
