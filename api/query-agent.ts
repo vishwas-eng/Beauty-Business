@@ -68,7 +68,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({
       ok: true,
       query: "",
-      answer: "AI chat is not configured. Add ANTHROPIC_API_KEY to your Vercel environment variables to enable free-form questions.",
+      answer: "AI chat is not configured. Add ANTHROPIC_API_KEY to your Vercel environment variables to enable free-form questions. Make sure you are using the Vercel deployment at lumara-opptra.vercel.app",
       suggestions: [],
       rows: [],
       sqlPreview: "",
@@ -118,7 +118,7 @@ ${context}`,
     return res.status(200).json({
       ok: false,
       query,
-      answer: "Could not reach AI. Check your ANTHROPIC_API_KEY in Vercel environment variables.",
+      answer: "Could not reach AI. Check your ANTHROPIC_API_KEY in Vercel environment variables at vercel.com/beauty-business/lumara-opptra/settings/environment-variables",
       suggestions: [],
       rows: [],
       sqlPreview: "",
