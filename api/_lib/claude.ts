@@ -1,5 +1,6 @@
 import { AutomationConfig, DashboardPayload, InsightItem, NotionContextItem } from "../../src/types/domain";
 import { buildHeuristicInsights } from "./shared";
+import { fetchWithRetry, logger } from "./production";
 
 export async function fetchClaudeInsights(
   systemPrompt: string,
@@ -8,31 +9,55 @@ export async function fetchClaudeInsights(
   maxTokens: number
 ) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) {
+    logger.warn("ANTHROPIC_API_KEY not configured");
+    return null;
+  }
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01"
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      system: systemPrompt,
-      messages: [{ role: "user", content: prompt }]
-    })
-  });
+  try {
+    const response = await fetchWithRetry("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        system: systemPrompt,
+        messages: [{ role: "user", content: prompt }]
+      }),
+      retries: 2,
+      timeout: 60000
+    });
 
-  if (!response.ok) return null;
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error("Claude API request failed", new Error(errorText), { status: response.status });
+      return null;
+    }
 
-  const data = (await response.json()) as {
-    content?: Array<{ type?: string; text?: string }>;
-  };
+    const data = (await response.json()) as {
+      content?: Array<{ type?: string; text?: string }>;
+    };
 
-  const text = data.content?.find((item) => item.type === "text")?.text;
-  return text ? JSON.parse(text) : null;
+    const text = data.content?.find((item) => item.type === "text")?.text;
+    if (!text) {
+      logger.warn("No text content in Claude response");
+      return null;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch (parseError) {
+      logger.error("Failed to parse Claude response", parseError as Error, { textLength: text.length });
+      return null;
+    }
+  } catch (error) {
+    logger.error("Claude API request failed", error as Error);
+    return null;
+  }
 }
 
 export async function createInsights(

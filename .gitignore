@@ -34,4 +34,10 @@ Thumbs.db
 
 # Supabase specific (preserving their gitignore)
 supabase/.gitignore
-```
+```.env
+.vercel
+.env
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+PRODUCTION.md
