@@ -9,6 +9,7 @@ import { StrategyPage } from "./routes/StrategyPage";
 import { MosaicBridgePage } from "./routes/MosaicBridgePage";
 import { RevenuePage } from "./routes/RevenuePage";
 import { ResearchLabPage } from "./routes/ResearchLabPage";
+import { InventoryPage } from "./routes/InventoryPage";
 import { LoginPage } from "./routes/LoginPage";
 
 function ProtectedRoutes() {
@@ -33,6 +34,7 @@ function ProtectedRoutes() {
         <Route path="/mosaic" element={<MosaicBridgePage />} />
         <Route path="/revenue" element={<RevenuePage />} />
         <Route path="/research" element={<ResearchLabPage />} />
+        <Route path="/inventory" element={<InventoryPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppShell>

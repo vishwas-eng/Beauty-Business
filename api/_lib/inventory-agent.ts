@@ -3,7 +3,7 @@
  * Generates demand forecasts and reorder recommendations using Claude AI
  */
 
-import Anthropic from '@anthropic/sdk';
+import Anthropic from '@anthropic-ai/sdk';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
