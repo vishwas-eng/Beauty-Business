@@ -1,13 +1,14 @@
-import { useEffect, useState } from "react";
-import { Flame, Snowflake } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Flame, FlaskConical, Snowflake } from "lucide-react";
 import { fetchDashboard } from "../lib/api";
 import { computeBrandScore, findCompetitiveOverlaps, isGoingCold, scoreLabel, scoreTone } from "../lib/scoring";
 import { DashboardPayload, PerformanceRow } from "../types/domain";
+import { ResearchLabPage } from "./ResearchLabPage";
 
 const ACTIVE_STATUSES = ["Leads", "Lead", "MQL", "SQL", "Commercials", "OD", "Contract", "Onboarding"];
 const STAGE_ORDER = ["Leads", "MQL", "SQL", "Commercials", "OD", "Contract", "Onboarding", "Hold", "Reject"];
 
-type Tab = "priority" | "overlaps" | "cold" | "velocity";
+type Tab = "priority" | "overlaps" | "cold" | "velocity" | "research";
 
 function normalizeCategory(c?: string) {
   return (c ?? "").trim() === "Mens Grooming" ? "Mens' Grooming" : (c ?? "").trim();
@@ -68,11 +69,12 @@ export function IntelPage() {
     return { stage, count: stageRows.length, avg, pct: Math.min(Math.round((avg / maxAvg) * 100), 100) };
   }).filter(s => s.count > 0);
 
-  const tabs: { id: Tab; label: string; count?: number }[] = [
+  const tabs: { id: Tab; label: string; count?: number; icon?: React.ReactNode }[] = [
     { id: "priority", label: "Priority Queue", count: priorityQueue.length },
     { id: "overlaps", label: "Competitive Overlaps", count: overlaps.length },
     { id: "cold", label: "Going Cold", count: goingCold.length },
-    { id: "velocity", label: "Deal Velocity", count: stageVelocity.length }
+    { id: "velocity", label: "Deal Velocity", count: stageVelocity.length },
+    { id: "research", label: "Research Lab", icon: <FlaskConical size={13} /> }
   ];
 
   return (
@@ -92,6 +94,7 @@ export function IntelPage() {
             onClick={() => setTab(t.id)}
             type="button"
           >
+            {t.icon && t.icon}
             {t.label}
             {t.count !== undefined && (
               <span className="intel-tab-count">{t.count}</span>
@@ -285,6 +288,10 @@ export function IntelPage() {
             <span className="legend-item"><span className="legend-dot" style={{ background: "var(--danger)" }} />Bottleneck (&gt;70% of max)</span>
           </div>
         </section>
+      )}
+
+      {tab === "research" && (
+        <ResearchLabPage />
       )}
     </div>
   );
