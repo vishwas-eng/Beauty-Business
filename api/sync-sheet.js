@@ -1,21 +1,20 @@
 /**
- * GET  /api/sync-sheet          → fetch + return sheet data (preview)
- * POST /api/sync-sheet          → fetch sheet + upsert into Supabase
+ * GET  /api/sync-sheet  → preview sheet data
+ * POST /api/sync-sheet  → sync sheet into Supabase
  */
 
-const SHEET_ID   = process.env.GOOGLE_SHEET_ID   || "1J0zCJYMLfTMwaUxECAzd5EVvhgSqQjkOBERNleUJAVg";
-const SHEET_TAB  = process.env.GOOGLE_SHEET_TAB  || "Sheet1";
+const SHEET_ID   = process.env.GOOGLE_SHEET_ID  || "1J0zCJYMLfTMwaUxECAzd5EVvhgSqQjkOBERNleUJAVg";
+const SHEET_TAB  = process.env.GOOGLE_SHEET_TAB || "Beauty Tracker P";
 const GOOGLE_KEY = process.env.GOOGLE_SHEETS_API_KEY;
-const SUPABASE_URL  = process.env.VITE_SUPABASE_URL;
-const SUPABASE_KEY  = process.env.VITE_SUPABASE_ANON_KEY;
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 
-// ── Fetch raw rows from Google Sheets ────────────────────────────────────────
 async function fetchSheet() {
   if (!GOOGLE_KEY) throw new Error("GOOGLE_SHEETS_API_KEY not set");
 
-  const range   = encodeURIComponent(`${SHEET_TAB}!A1:Z1000`);
-  const url     = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}?key=${GOOGLE_KEY}`;
-  const res     = await fetch(url);
+  const range = encodeURIComponent(`${SHEET_TAB}!A1:Z2000`);
+  const url   = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}?key=${GOOGLE_KEY}`;
+  const res   = await fetch(url);
 
   if (!res.ok) {
     const err = await res.text();
@@ -26,62 +25,57 @@ async function fetchSheet() {
   const rows = data.values || [];
   if (rows.length < 2) return { headers: [], rows: [] };
 
-  const headers = rows[0].map(h => String(h).trim().toLowerCase().replace(/\s+/g, "_"));
-  const records = rows.slice(1).map(row => {
-    const obj = {};
-    headers.forEach((h, i) => { obj[h] = row[i] ?? ""; });
-    return obj;
-  });
+  // Normalize headers: trim, lowercase, replace spaces with _
+  const headers = rows[0].map(h => String(h || "").trim().toLowerCase().replace(/\s+/g, "_"));
+
+  const records = rows.slice(1)
+    .filter(row => row.some(cell => cell && String(cell).trim()))
+    .map((row, idx) => {
+      const obj = { _row: idx + 2 };
+      headers.forEach((h, i) => { obj[h] = String(row[i] || "").trim(); });
+      return obj;
+    });
 
   return { headers, rows: records };
 }
 
-// ── Normalize a sheet row into our pipeline format ───────────────────────────
-function normalizeRow(row, idx) {
-  // Try common column name variations
-  const get = (...keys) => {
-    for (const k of keys) {
-      if (row[k] !== undefined && row[k] !== "") return String(row[k]).trim();
-    }
-    return "";
-  };
-
+function normalizeRow(row) {
   return {
-    id:            idx,
-    brand:         get("brand", "brand_name", "name", "company"),
-    category:      get("category", "cat", "type", "product_category"),
-    segment:       get("segment", "market_segment", "tier"),
-    launch_market: get("launch_market", "market", "region", "geography", "country"),
-    status:        get("status", "stage", "pipeline_stage", "deal_stage"),
-    source_country:get("source_country", "source", "origin", "country_of_origin"),
-    working_days:  parseInt(get("working_days", "days", "days_in_pipeline", "age") || "0") || 0,
-    next_step:     get("next_step", "next_steps", "action", "next_action"),
-    hold_reason:   get("hold_reason", "hold", "reason", "blocked_reason"),
-    notes:         get("notes", "note", "comments", "comment"),
-    raw:           row,
+    brand:          row.brand || row.brand_name || "",
+    category:       row.category || "",
+    segment:        row.segment || "",
+    company:        row.company || "",
+    source_country: row.country || row.source_country || "",
+    launch_market:  row.country_for_launch || row.launch_market || row.market || "",
+    quadrant:       row.quadrant || "",
+    start_date:     row.discussion_start_date || row.start_date || "",
+    status:         row.status || "",
+    // grab any extra columns dynamically
+    raw: row,
   };
 }
 
-// ── Upsert rows into Supabase ─────────────────────────────────────────────────
 async function upsertToSupabase(rows) {
-  if (!SUPABASE_URL || !SUPABASE_KEY) throw new Error("Supabase not configured");
+  if (!SUPABASE_URL || !SUPABASE_KEY) throw new Error("Supabase env vars not set");
 
-  const records = rows.map(r => ({
-    workspace_id:   "00000000-0000-0000-0000-000000000001", // default workspace
-    source_row_hash: `sheet-row-${r.id}-${r.brand}`.replace(/\s/g, "-").toLowerCase(),
-    date:           new Date().toISOString().split("T")[0],
-    sku:            r.brand || `ROW-${r.id}`,
-    product_name:   r.brand,
-    category:       r.category || "Uncategorized",
-    brand:          r.brand,
-    channel:        r.launch_market || "Global",
-    sales_qty:      0,
-    sales_amount:   0,
-    returns_qty:    0,
-    inventory_on_hand: 0,
-    cost_amount:    0,
-    discount_amount: 0,
-  })).filter(r => r.product_name);
+  const records = rows
+    .filter(r => r.brand)
+    .map((r, i) => ({
+      workspace_id:     "00000000-0000-0000-0000-000000000001",
+      source_row_hash:  `sheet-${r.brand}-${r.launch_market}-${i}`.toLowerCase().replace(/[^a-z0-9-]/g, "-"),
+      date:             new Date().toISOString().split("T")[0],
+      sku:              `${r.brand}-${r.launch_market}`.toLowerCase().replace(/\s+/g, "-"),
+      product_name:     r.brand,
+      category:         r.category || "Uncategorized",
+      brand:            r.brand,
+      channel:          r.launch_market || "Global",
+      sales_qty:        0,
+      sales_amount:     0,
+      returns_qty:      0,
+      inventory_on_hand:0,
+      cost_amount:      0,
+      discount_amount:  0,
+    }));
 
   const res = await fetch(`${SUPABASE_URL}/rest/v1/analytics_records`, {
     method: "POST",
@@ -96,13 +90,12 @@ async function upsertToSupabase(rows) {
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Supabase upsert error ${res.status}: ${err}`);
+    throw new Error(`Supabase error ${res.status}: ${err}`);
   }
 
   return records.length;
 }
 
-// ── Handler ───────────────────────────────────────────────────────────────────
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -113,7 +106,6 @@ module.exports = async function handler(req, res) {
     const { headers, rows } = await fetchSheet();
     const normalized        = rows.map(normalizeRow);
 
-    // GET → just preview the data
     if (req.method === "GET") {
       return res.status(200).json({
         ok:       true,
@@ -125,11 +117,10 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // POST → sync into Supabase
     const synced = await upsertToSupabase(normalized);
     return res.status(200).json({
       ok:       true,
-      message:  `Synced ${synced} rows from Google Sheet into Supabase`,
+      message:  `Synced ${synced} rows from "${SHEET_TAB}" into Supabase`,
       rowCount: synced,
       syncedAt: new Date().toISOString(),
     });
