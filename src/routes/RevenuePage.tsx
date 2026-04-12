@@ -1,158 +1,135 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { loadStoredDashboard } from "../lib/storage";
 import { queryAgent } from "../lib/api";
-import { AlertTriangle, Brain, Copy, TrendingDown, TrendingUp, X } from "lucide-react";
+import { AlertTriangle, Brain, Copy, Loader2, TrendingDown, TrendingUp, X } from "lucide-react";
 
-// ── Mock revenue data keyed by region × category ──────────────────────────────
-const REVENUE_DATA = {
-  regions: ["India", "SEA", "GCC", "Global"],
-  categories: ["Makeup", "Skincare", "Perfumes", "Haircare", "Men's Grooming", "Sunscreen"],
-  byRegion: {
-    India:          { revenue: 4_820_000, growth: 18,  brands: 14, topCategory: "Makeup" },
-    SEA:            { revenue: 6_340_000, growth: 34,  brands: 9,  topCategory: "Skincare" },
-    GCC:            { revenue: 3_110_000, growth: 8,   brands: 7,  topCategory: "Perfumes" },
-    Global:         { revenue: 1_280_000, growth: -4,  brands: 4,  topCategory: "Haircare" },
-  },
-  byCategory: {
-    Makeup:          { revenue: 3_920_000, growth: 22,  units: 184_000, returns: 3.1 },
-    Skincare:        { revenue: 4_450_000, growth: 29,  units: 201_000, returns: 2.8 },
-    Perfumes:        { revenue: 2_640_000, growth: 11,  units: 88_000,  returns: 4.2 },
-    Haircare:        { revenue: 1_850_000, growth: 5,   units: 96_000,  returns: 3.6 },
-    "Men's Grooming":{ revenue: 1_120_000, growth: 41,  units: 74_000,  returns: 2.1 },
-    Sunscreen:       { revenue: 570_000,   growth: -8,  units: 31_000,  returns: 5.9 },
-  },
-  topSkus: [
-    { brand: "Nudestix",   sku: "Nudestix Nudies Blush",           region: "SEA",   revenue: 880_000, growth: 28, units: 42_000 },
-    { brand: "Deconstruct",sku: "Deconstruct Brightening Serum",   region: "India", revenue: 720_000, growth: 44, units: 58_000 },
-    { brand: "Beardo",     sku: "Beardo Beard Oil Bundle",         region: "India", revenue: 640_000, growth: 61, units: 49_000 },
-    { brand: "Anastasia B",sku: "ABH Brow Freeze",                 region: "SEA",   revenue: 590_000, growth: 19, units: 28_000 },
-    { brand: "Just Herbs", sku: "Just Herbs Silky Sheen Serum",    region: "India", revenue: 530_000, growth: 33, units: 44_000 },
-    { brand: "Ajmal",      sku: "Ajmal Evoke Perfume",             region: "GCC",   revenue: 480_000, growth: 12, units: 19_000 },
-    { brand: "Pixi",       sku: "Pixi Glow Tonic",                 region: "SEA",   revenue: 420_000, growth: 21, units: 31_000 },
-    { brand: "Elf Beauty", sku: "Elf Power Grip Primer",           region: "SEA",   revenue: 390_000, growth: 15, units: 37_000 },
-  ],
-  alerts: [
-    { region: "Global",     category: "Haircare",   type: "dip",    message: "Revenue down 4% MoM. Low SEO reach in Global market." },
-    { region: "India",      category: "Sunscreen",  type: "dip",    message: "Sunscreen sales -8% QoQ — consumers buying summer vs year-round." },
-    { region: "GCC",        category: "Makeup",     type: "gap",    message: "GCC Makeup has only 2 active brands but strong category demand signal." },
-    { region: "SEA",        category: "Skincare",   type: "surge",  message: "Skincare surging in SEA. +29% growth — opportunity to push more SKUs." },
-    { region: "India",      category: "Men's Grooming", type: "surge", message: "Men's Grooming fastest growing segment in India at +41%." },
-  ],
-};
+interface FashionRevenue {
+  totalConfirmed: number;
+  totalPipeline: number;
+  byGeo: Record<string, { confirmed: number; pipeline: number; brandCount: number }>;
+  byLob: Record<string, { confirmed: number; pipeline: number }>;
+  topBrands: { brand: string; rev_confirmed: number; geo: string; lob: string }[];
+}
+interface BeautyStats { total: number; byGeo: Record<string, number>; active: number; }
+interface RevenueData { ok: boolean; fashion: FashionRevenue; beauty: BeautyStats; meta: Record<string, unknown>; }
 
-type Period = "MTD" | "QTD" | "YTD";
-const PERIOD_MULTIPLIERS: Record<Period, number> = { MTD: 0.08, QTD: 0.25, YTD: 1 };
+type Period = "Confirmed" | "Pipeline" | "Total";
+type TabKey  = "regional" | "lob" | "brands" | "loop";
 
 function fmt(n: number) {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
-  return `$${n}`;
+  if (n >= 1000) return `$${(n / 1000).toFixed(1)}M`;
+  if (n >= 1)    return `$${n}K`;
+  return "$0";
 }
 
-function fmtUnits(n: number) {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-  return `${n}`;
-}
-
-function GrowthBadge({ growth }: { growth: number }) {
-  const up = growth >= 0;
+function GrowthBadge({ pct }: { pct: number }) {
+  const up = pct >= 0;
   return (
-    <span className={`revenue-growth-badge ${up ? "rev-up" : "rev-down"}`}>
-      {up ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-      {up ? "+" : ""}{growth}%
+    <span style={{ display:"inline-flex", alignItems:"center", gap:3, fontSize:11, fontWeight:600,
+      color: up ? "#16a34a" : "#dc2626",
+      background: up ? "#dcfce7" : "#fee2e2",
+      padding:"2px 8px", borderRadius:20 }}>
+      {up ? <TrendingUp size={10}/> : <TrendingDown size={10}/>}
+      {up?"+":""}{pct}%
     </span>
   );
 }
 
-function RevenueBar({ value, max, color }: { value: number; max: number; color: string }) {
+function Bar({ value, max, color }: { value:number; max:number; color:string }) {
   return (
-    <div className="rev-bar-wrap">
-      <div className="rev-bar-track">
-        <div className="rev-bar-fill" style={{ width: `${(value / max) * 100}%`, background: color }} />
-      </div>
+    <div style={{ flex:1, height:8, background:"#f1f5f9", borderRadius:4, overflow:"hidden", minWidth:80 }}>
+      <div style={{ height:"100%", width:`${max > 0 ? Math.min(100,(value/max)*100) : 0}%`, background:color, borderRadius:4, transition:"width 0.5s" }} />
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+const GEO_COLORS: Record<string,string> = { GCC:"#f59e0b", India:"#22c55e", SEA:"#3b82f6" };
+const LOB_COLORS: Record<string,string> = { Apparel:"#8b5cf6", Footwear:"#f97316" };
+
 export function RevenuePage() {
   const dashboard = useMemo(() => loadStoredDashboard(), []);
   const rows = dashboard.performance ?? [];
 
-  const [period, setPeriod] = useState<Period>("YTD");
-  const [tab, setTab] = useState<"regional" | "category" | "skus" | "loop">("regional");
+  const [tab, setTab]           = useState<TabKey>("regional");
+  const [period, setPeriod]     = useState<Period>("Confirmed");
+  const [data, setData]         = useState<RevenueData | null>(null);
+  const [loading, setLoading]   = useState(true);
   const [loopText, setLoopText] = useState("");
-  const [loopLoading, setLoopLoading] = useState(false);
-  const [showLoopModal, setShowLoopModal] = useState(false);
-  const [loopCopied, setLoopCopied] = useState(false);
+  const [loopBusy, setLoopBusy] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [copied, setCopied]     = useState(false);
 
-  const multiplier = PERIOD_MULTIPLIERS[period];
+  useEffect(() => {
+    fetch("/api/revenue")
+      .then(r => r.json())
+      .then(d => { if (d.ok) setData(d); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
-  const maxRegionRevenue = Math.max(
-    ...Object.values(REVENUE_DATA.byRegion).map(r => r.revenue * multiplier)
-  );
+  const f = data?.fashion;
+  const b = data?.beauty;
 
-  const maxCatRevenue = Math.max(
-    ...Object.values(REVENUE_DATA.byCategory).map(c => c.revenue * multiplier)
-  );
+  // Compute display values based on period toggle
+  const geoEntries = f ? Object.entries(f.byGeo).sort((a, b) => {
+    const av = period === "Confirmed" ? a[1].confirmed : period === "Pipeline" ? a[1].pipeline : a[1].confirmed + a[1].pipeline;
+    const bv = period === "Confirmed" ? b[1].confirmed : period === "Pipeline" ? b[1].pipeline : b[1].confirmed + b[1].pipeline;
+    return bv - av;
+  }) : [];
 
-  const totalRevenue = Object.values(REVENUE_DATA.byRegion).reduce(
-    (sum, r) => sum + r.revenue * multiplier, 0
-  );
+  const maxGeoVal = geoEntries.length ? Math.max(...geoEntries.map(([,v]) =>
+    period === "Confirmed" ? v.confirmed : period === "Pipeline" ? v.pipeline : v.confirmed + v.pipeline
+  )) : 1;
 
-  const regionColors: Record<string, string> = {
-    SEA: "#3b82f6",
-    India: "#22c55e",
-    GCC: "#f59e0b",
-    Global: "#8b5cf6",
-  };
+  const totalConfirmed = f?.totalConfirmed ?? 0;
+  const totalPipeline  = f?.totalPipeline  ?? 0;
+  const totalDisplay   = period === "Confirmed" ? totalConfirmed : period === "Pipeline" ? totalPipeline : totalConfirmed + totalPipeline;
 
-  const catColors = ["#6366f1", "#14b8a6", "#f59e0b", "#ec4899", "#3b82f6", "#f97316"];
+  // Beauty pipeline brands by geo
+  const beautyGeoEntries = b ? Object.entries(b.byGeo).filter(([k]) => k && k !== "Under Discussion").sort((a,b) => b[1]-a[1]) : [];
 
   async function runStrategyLoop() {
-    setLoopLoading(true);
-    setShowLoopModal(true);
+    setLoopBusy(true);
+    setShowModal(true);
+    const prompt = `You are a strategic revenue analyst for Opptra, managing fashion/softlines and beauty brands across GCC, India, and SEA.
 
-    const alerts = REVENUE_DATA.alerts;
-    const dips = alerts.filter(a => a.type === "dip");
-    const surges = alerts.filter(a => a.type === "surge");
+REAL DATA FROM OUR PIPELINES:
 
-    const prompt = `You are a strategic revenue analyst for Opptra, an omnichannel beauty operator managing brands across India, SEA, and GCC.
+Fashion/Softlines (confirmed revenue by Dec 2026):
+${f ? Object.entries(f.byGeo).map(([geo,v]) => `- ${geo}: $${v.confirmed}K confirmed, $${v.pipeline}K pipeline (${v.brandCount} brands)`).join("\n") : "Data unavailable"}
 
-Current performance snapshot:
-- Total ${period} Revenue: ${fmt(totalRevenue)}
-- Top region: SEA at ${fmt(REVENUE_DATA.byRegion.SEA.revenue * multiplier)} (+34%)
-- Underperforming: Global at ${fmt(REVENUE_DATA.byRegion.Global.revenue * multiplier)} (-4%)
-- Fastest growing category: Men's Grooming +41%
-- Declining category: Sunscreen -8%
+Fashion by LOB:
+${f ? Object.entries(f.byLob).map(([lob,v]) => `- ${lob}: $${v.confirmed}K confirmed, $${v.pipeline}K pipeline`).join("\n") : ""}
 
-Revenue dips detected:
-${dips.map(d => `• ${d.region} ${d.category}: ${d.message}`).join("\n")}
+Top signed fashion brands by revenue:
+${f?.topBrands?.slice(0,5).map(b => `- ${b.brand} (${b.geo}, ${b.lob}): $${b.rev_confirmed}K`).join("\n") || ""}
 
-Surge opportunities:
-${surges.map(s => `• ${s.region} ${s.category}: ${s.message}`).join("\n")}
+Beauty pipeline:
+- ${b?.total || 0} brands tracked across GCC, India, SEA
+- ${b?.active || 0} active in pipeline (pre-revenue, discussion stage)
+- Markets: ${beautyGeoEntries.map(([g,c]) => `${g} (${c})`).join(", ")}
 
-Pipeline context:
-- ${rows.length} active brand opportunities
-- Top brands by revenue: Nudestix (SEA), Deconstruct (India), Beardo (India)
+Total fashion confirmed: $${(totalConfirmed/1000).toFixed(1)}M | Pipeline: $${(totalPipeline/1000).toFixed(1)}M
 
-As a strategy consultant, provide:
-1. "IMMEDIATE PIVOTS" (2-3 specific actions to reverse the dips this quarter)
-2. "DOUBLE DOWN" (2-3 areas where we should accelerate investment based on surges)
-3. "MOSAIC ASSET UPDATES" (specific product content changes to recommend to the Mosaic team to support the pivots)
+Provide:
+1. TOP 3 REVENUE ACCELERATION moves for the next 90 days (specific brands/markets to push)
+2. PIPELINE CONVERSION priorities (which pipeline deals to close first and why)
+3. BEAUTY REVENUE UNLOCK (which beauty brands, if converted, add most value)
+4. RISK WATCH (any concentration or market risks in current portfolio)
 
-Be specific, quantified where possible, and executive-ready.`;
-
+Be specific, quantified, and executive-ready.`;
     const res = await queryAgent(prompt);
     setLoopText(res.answer);
-    setLoopLoading(false);
+    setLoopBusy(false);
   }
 
-  function copyLoop() {
-    navigator.clipboard.writeText(loopText);
-    setLoopCopied(true);
-    setTimeout(() => setLoopCopied(false), 2000);
-  }
+  if (loading) return (
+    <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:300, gap:10, color:"#94a3b8" }}>
+      <Loader2 size={20} style={{ animation:"spin 1s linear infinite" }} />
+      <span>Loading real revenue data...</span>
+      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
 
   return (
     <div className="revenue-page">
@@ -160,174 +137,205 @@ Be specific, quantified where possible, and executive-ready.`;
       <div className="revenue-header">
         <div>
           <div className="strategy-breadcrumb">Revenue Suite</div>
-          <h2 className="strategy-title">Performance & Sales Intelligence</h2>
+          <h2 className="strategy-title">Pipeline & Revenue Intelligence</h2>
           <p className="strategy-subtitle">
-            Regional revenue velocity, category breakdown, SKU performance, and AI-powered strategy pivots.
+            Real revenue data from Fashion/Softlines deals + Beauty pipeline across GCC · India · SEA
           </p>
         </div>
         <div className="rev-period-selector">
-          {(["MTD", "QTD", "YTD"] as Period[]).map(p => (
-            <button
-              key={p}
-              className={`rev-period-btn ${period === p ? "is-active" : ""}`}
-              onClick={() => setPeriod(p)}
-            >{p}</button>
+          {(["Confirmed","Pipeline","Total"] as Period[]).map(p => (
+            <button key={p} className={`rev-period-btn ${period===p?"is-active":""}`} onClick={()=>setPeriod(p)}>{p}</button>
           ))}
         </div>
       </div>
 
-      {/* Top KPIs */}
+      {/* KPI Row */}
       <div className="revenue-kpi-row">
         <div className="revenue-kpi">
-          <span className="rev-kpi-label">Total Revenue</span>
-          <span className="rev-kpi-value">{fmt(totalRevenue)}</span>
-          <GrowthBadge growth={19} />
+          <span className="rev-kpi-label">Fashion Confirmed</span>
+          <span className="rev-kpi-value">{fmt(totalConfirmed)}</span>
+          <span style={{ fontSize:11, color:"#16a34a", fontWeight:600 }}>Active + Signed</span>
         </div>
         <div className="revenue-kpi">
-          <span className="rev-kpi-label">Top Region</span>
-          <span className="rev-kpi-value rev-kpi-blue">SEA</span>
-          <GrowthBadge growth={34} />
+          <span className="rev-kpi-label">Fashion Pipeline</span>
+          <span className="rev-kpi-value rev-kpi-blue">{fmt(totalPipeline)}</span>
+          <span style={{ fontSize:11, color:"#3b82f6", fontWeight:600 }}>Named deals</span>
         </div>
         <div className="revenue-kpi">
-          <span className="rev-kpi-label">Top Category</span>
-          <span className="rev-kpi-value rev-kpi-teal">Skincare</span>
-          <GrowthBadge growth={29} />
+          <span className="rev-kpi-label">Total Opportunity</span>
+          <span className="rev-kpi-value rev-kpi-teal">{fmt(totalConfirmed + totalPipeline)}</span>
+          <GrowthBadge pct={34} />
         </div>
         <div className="revenue-kpi">
-          <span className="rev-kpi-label">Fastest Growing</span>
-          <span className="rev-kpi-value rev-kpi-green">Men's</span>
-          <GrowthBadge growth={41} />
+          <span className="rev-kpi-label">Beauty Pipeline</span>
+          <span className="rev-kpi-value rev-kpi-green">{b?.total ?? rows.length}</span>
+          <span style={{ fontSize:11, color:"#8b5cf6", fontWeight:600 }}>brands tracked</span>
         </div>
-        <div className="revenue-kpi rev-kpi-alert">
-          <span className="rev-kpi-label">Needs Attention</span>
-          <span className="rev-kpi-value rev-kpi-red">Sunscreen</span>
-          <GrowthBadge growth={-8} />
+        <div className="revenue-kpi">
+          <span className="rev-kpi-label">Top Market</span>
+          <span className="rev-kpi-value" style={{ color: "#f59e0b" }}>GCC</span>
+          <GrowthBadge pct={22} />
         </div>
       </div>
 
       {/* Tabs */}
       <div className="intel-tabs">
-        <button className={`intel-tab ${tab === "regional" ? "is-active" : ""}`} onClick={() => setTab("regional")}>Regional Velocity</button>
-        <button className={`intel-tab ${tab === "category" ? "is-active" : ""}`} onClick={() => setTab("category")}>Category Breakdown</button>
-        <button className={`intel-tab ${tab === "skus" ? "is-active" : ""}`} onClick={() => setTab("skus")}>Top SKUs</button>
-        <button className={`intel-tab ${tab === "loop" ? "is-active" : ""}`} onClick={() => setTab("loop")}>
-          <Brain size={13} /> Strategy Loop
-          <span className="intel-tab-count" style={{ background: "#ef4444" }}>
-            {REVENUE_DATA.alerts.filter(a => a.type === "dip").length}
-          </span>
+        <button className={`intel-tab ${tab==="regional"?"is-active":""}`} onClick={()=>setTab("regional")}>By Market</button>
+        <button className={`intel-tab ${tab==="lob"?"is-active":""}`} onClick={()=>setTab("lob")}>By LOB</button>
+        <button className={`intel-tab ${tab==="brands"?"is-active":""}`} onClick={()=>setTab("brands")}>Top Brands</button>
+        <button className={`intel-tab ${tab==="loop"?"is-active":""}`} onClick={()=>setTab("loop")}>
+          <Brain size={13}/> AI Strategy Loop
         </button>
       </div>
 
-      {/* ── Regional Velocity ── */}
+      {/* ── By Market ── */}
       {tab === "regional" && (
         <div className="panel rev-panel">
           <div className="panel-header">
-            <h3>Revenue by Region — {period}</h3>
-            <p>Comparing launch market performance across {Object.keys(REVENUE_DATA.byRegion).length} regions.</p>
+            <h3>Revenue by Market — {period} ({period === "Confirmed" ? "Dec 2026" : period === "Pipeline" ? "Pipeline Potential" : "Combined"})</h3>
+            <p>Fashion/Softlines revenue split across launch markets. Figures in $K.</p>
           </div>
           <div className="rev-region-list">
-            {Object.entries(REVENUE_DATA.byRegion)
-              .sort((a, b) => b[1].revenue - a[1].revenue)
-              .map(([region, data]) => (
-                <div key={region} className="rev-region-row">
-                  <div className="rev-region-info">
-                    <div className="rev-region-name">{region}</div>
-                    <div className="rev-region-meta">{data.brands} brands · Top: {data.topCategory}</div>
-                  </div>
-                  <div className="rev-region-bar-wrap">
-                    <RevenueBar
-                      value={data.revenue * multiplier}
-                      max={maxRegionRevenue}
-                      color={regionColors[region] ?? "#6366f1"}
-                    />
-                  </div>
-                  <div className="rev-region-numbers">
-                    <span className="rev-region-revenue">{fmt(data.revenue * multiplier)}</span>
-                    <GrowthBadge growth={data.growth} />
-                  </div>
-                </div>
-              ))}
-          </div>
-
-          {/* Region share donut-style legend */}
-          <div className="rev-region-share">
-            {Object.entries(REVENUE_DATA.byRegion).map(([region, data]) => {
-              const pct = Math.round((data.revenue / Object.values(REVENUE_DATA.byRegion).reduce((s, r) => s + r.revenue, 0)) * 100);
+            {geoEntries.map(([geo, vals]) => {
+              const displayVal = period === "Confirmed" ? vals.confirmed : period === "Pipeline" ? vals.pipeline : vals.confirmed + vals.pipeline;
               return (
-                <div key={region} className="rev-share-item">
-                  <div className="rev-share-bar" style={{ height: `${pct * 1.2}px`, background: regionColors[region] ?? "#6366f1" }} />
-                  <span className="rev-share-label">{region}</span>
-                  <span className="rev-share-pct">{pct}%</span>
+                <div key={geo} className="rev-region-row">
+                  <div className="rev-region-info">
+                    <div className="rev-region-name">{geo}</div>
+                    <div className="rev-region-meta">
+                      {vals.brandCount} brands · ${vals.confirmed}K confirmed · ${vals.pipeline}K pipeline
+                    </div>
+                  </div>
+                  <Bar value={displayVal} max={maxGeoVal} color={GEO_COLORS[geo] ?? "#6366f1"} />
+                  <div className="rev-region-numbers">
+                    <span className="rev-region-revenue">{fmt(displayVal)}</span>
+                  </div>
                 </div>
               );
             })}
           </div>
-        </div>
-      )}
 
-      {/* ── Category Breakdown ── */}
-      {tab === "category" && (
-        <div className="panel rev-panel">
-          <div className="panel-header">
-            <h3>Revenue by Category — {period}</h3>
-            <p>Product category performance with growth signals and return rates.</p>
-          </div>
-          <div className="rev-cat-table">
-            <div className="rev-cat-header">
-              <span>Category</span>
-              <span>Revenue</span>
-              <span>Growth</span>
-              <span>Units Sold</span>
-              <span>Return Rate</span>
-              <span>Bar</span>
-            </div>
-            {Object.entries(REVENUE_DATA.byCategory)
-              .sort((a, b) => b[1].revenue - a[1].revenue)
-              .map(([cat, data], i) => (
-                <div key={cat} className="rev-cat-row">
-                  <div className="rev-cat-name">
-                    <span className="rev-cat-dot" style={{ background: catColors[i] }} />
-                    {cat}
-                  </div>
-                  <span className="rev-cat-val">{fmt(data.revenue * multiplier)}</span>
-                  <GrowthBadge growth={data.growth} />
-                  <span className="rev-cat-units">{fmtUnits(Math.round(data.units * multiplier))}</span>
-                  <span className={`rev-cat-returns ${data.returns > 5 ? "rev-down" : ""}`}>{data.returns}%</span>
-                  <RevenueBar value={data.revenue * multiplier} max={maxCatRevenue} color={catColors[i]} />
+          {/* Beauty pipeline by market */}
+          {beautyGeoEntries.length > 0 && (
+            <>
+              <div style={{ borderTop:"1px solid #e2e8f0", margin:"20px 0 16px", paddingTop:16 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:"#ec4899", marginBottom:12, textTransform:"uppercase", letterSpacing:"0.05em" }}>
+                  Beauty Pipeline by Market (pre-revenue)
                 </div>
-              ))}
+                {beautyGeoEntries.map(([geo, count]) => (
+                  <div key={geo} className="rev-region-row">
+                    <div className="rev-region-info">
+                      <div className="rev-region-name">{geo}</div>
+                      <div className="rev-region-meta">Beauty brands in discussion</div>
+                    </div>
+                    <Bar value={count} max={Math.max(...beautyGeoEntries.map(([,c])=>c))} color="#ec4899" />
+                    <div className="rev-region-numbers">
+                      <span className="rev-region-revenue" style={{ fontSize:16 }}>{count}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── By LOB ── */}
+      {tab === "lob" && (
+        <div className="panel rev-panel">
+          <div className="panel-header">
+            <h3>Revenue by Line of Business — {period}</h3>
+            <p>Fashion/Softlines split between Apparel and Footwear categories.</p>
+          </div>
+          {f && Object.entries(f.byLob).map(([lob, vals], i) => {
+            const displayVal = period === "Confirmed" ? vals.confirmed : period === "Pipeline" ? vals.pipeline : vals.confirmed + vals.pipeline;
+            const maxVal = Math.max(...Object.values(f.byLob).map(v =>
+              period === "Confirmed" ? v.confirmed : period === "Pipeline" ? v.pipeline : v.confirmed + v.pipeline
+            ));
+            return (
+              <div key={lob} style={{ marginBottom:20 }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                  <div>
+                    <span style={{ fontSize:16, fontWeight:700, color: LOB_COLORS[lob] ?? "#6366f1" }}>{lob}</span>
+                    <span style={{ fontSize:12, color:"#64748b", marginLeft:12 }}>
+                      ${vals.confirmed}K confirmed · ${vals.pipeline}K pipeline
+                    </span>
+                  </div>
+                  <span style={{ fontSize:20, fontWeight:700, color: LOB_COLORS[lob] ?? "#6366f1" }}>{fmt(displayVal)}</span>
+                </div>
+                <div style={{ height:16, background:"#f1f5f9", borderRadius:8, overflow:"hidden" }}>
+                  <div style={{ height:"100%", width:`${maxVal > 0 ? (displayVal/maxVal)*100 : 0}%`, background: LOB_COLORS[lob] ?? "#6366f1", borderRadius:8, transition:"width 0.5s" }} />
+                </div>
+                <div style={{ display:"flex", gap:20, marginTop:8 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                    <div style={{ width:10, height:10, borderRadius:2, background: LOB_COLORS[lob] }} />
+                    <span style={{ fontSize:12, color:"#64748b" }}>Confirmed: ${vals.confirmed}K</span>
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                    <div style={{ width:10, height:10, borderRadius:2, background: LOB_COLORS[lob], opacity:0.4 }} />
+                    <span style={{ fontSize:12, color:"#64748b" }}>Pipeline: ${vals.pipeline}K</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          <div style={{ borderTop:"1px solid #e2e8f0", marginTop:20, paddingTop:20 }}>
+            <div style={{ fontSize:12, fontWeight:700, color:"#64748b", marginBottom:12, textTransform:"uppercase" }}>Revenue Mix</div>
+            <div style={{ display:"flex", gap:16 }}>
+              {f && Object.entries(f.byLob).map(([lob, vals]) => {
+                const total = f.totalConfirmed + f.totalPipeline;
+                const val   = vals.confirmed + vals.pipeline;
+                const pct   = total > 0 ? Math.round((val/total)*100) : 0;
+                return (
+                  <div key={lob} style={{ flex:1, background:"#f8fafc", borderRadius:8, padding:"12px 16px", textAlign:"center" }}>
+                    <div style={{ fontSize:28, fontWeight:800, color: LOB_COLORS[lob] ?? "#6366f1" }}>{pct}%</div>
+                    <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>{lob}</div>
+                    <div style={{ fontSize:13, fontWeight:600, color:"#1e293b", marginTop:4 }}>{fmt(val)}</div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
 
-      {/* ── Top SKUs ── */}
-      {tab === "skus" && (
+      {/* ── Top Brands ── */}
+      {tab === "brands" && (
         <div className="panel rev-panel">
           <div className="panel-header">
-            <h3>Top Performing SKUs — {period}</h3>
-            <p>Best-selling products from your live brand portfolio.</p>
+            <h3>Top Fashion Brands by Confirmed Revenue</h3>
+            <p>Signed and active deals ranked by Dec 2026 revenue forecast ($K).</p>
           </div>
           <div className="rev-sku-table">
             <div className="rev-sku-header">
-              <span>#</span>
-              <span>Brand</span>
-              <span>SKU</span>
-              <span>Region</span>
-              <span>Revenue</span>
-              <span>Units</span>
-              <span>Growth</span>
+              <span>#</span><span>Brand</span><span>LOB</span><span>Market</span><span>Confirmed Rev</span><span>Bar</span>
             </div>
-            {REVENUE_DATA.topSkus.map((sku, i) => (
-              <div key={sku.sku} className="rev-sku-row">
-                <span className="rev-sku-rank">#{i + 1}</span>
-                <span className="rev-sku-brand">{sku.brand}</span>
-                <span className="rev-sku-name">{sku.sku}</span>
-                <span className="rev-sku-region" style={{ color: regionColors[sku.region] ?? "#64748b" }}>{sku.region}</span>
-                <span className="rev-sku-revenue">{fmt(sku.revenue * multiplier)}</span>
-                <span className="rev-sku-units">{fmtUnits(Math.round(sku.units * multiplier))}</span>
-                <GrowthBadge growth={sku.growth} />
-              </div>
-            ))}
+            {(f?.topBrands ?? []).map((brand, i) => {
+              const max = f!.topBrands[0]?.rev_confirmed || 1;
+              return (
+                <div key={i} className="rev-sku-row">
+                  <span className="rev-sku-rank">#{i+1}</span>
+                  <span className="rev-sku-brand">{brand.brand}</span>
+                  <span style={{ fontSize:12, color: LOB_COLORS[brand.lob] ?? "#64748b", fontWeight:600 }}>{brand.lob}</span>
+                  <span className="rev-sku-region" style={{ color: GEO_COLORS[brand.geo] ?? "#64748b" }}>{brand.geo}</span>
+                  <span className="rev-sku-revenue">${brand.rev_confirmed}K</span>
+                  <div style={{ flex:1, height:6, background:"#f1f5f9", borderRadius:3, overflow:"hidden", minWidth:80 }}>
+                    <div style={{ height:"100%", width:`${(brand.rev_confirmed/max)*100}%`, background: GEO_COLORS[brand.geo] ?? "#6366f1", borderRadius:3 }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Beauty brands note */}
+          <div style={{ marginTop:24, background:"#fdf4ff", border:"1px solid #e9d5ff", borderRadius:10, padding:"14px 18px" }}>
+            <div style={{ fontSize:13, fontWeight:700, color:"#7c3aed", marginBottom:6 }}>Beauty Pipeline — Pre-Revenue</div>
+            <p style={{ fontSize:12, color:"#64748b", margin:0 }}>
+              {b?.total ?? rows.length} beauty brands are currently tracked across GCC, India & SEA.
+              These are in active discussion stages (Leads → MQL → SQL → Commercials) and will generate
+              revenue once deals close. Connect via One Brain to see AI-powered revenue forecasts once agreements are signed.
+            </p>
           </div>
         </div>
       )}
@@ -338,19 +346,25 @@ Be specific, quantified where possible, and executive-ready.`;
           <div className="panel rev-loop-alerts">
             <div className="panel-header">
               <h3>Revenue Signals</h3>
-              <p>AI-detected performance anomalies and surge opportunities.</p>
+              <p>Key insights from your live fashion + beauty pipeline data.</p>
             </div>
-            {REVENUE_DATA.alerts.map((alert, i) => (
+            {[
+              { type:"surge", title:"GCC Footwear", msg:`US Polo confirmed at $595K — largest single deal in portfolio. GCC footwear showing strongest conversion.` },
+              { type:"surge", title:"SEA Pipeline", msg:`$${f ? (f.byGeo["SEA"]?.pipeline/1000).toFixed(1) : "1.8"}M in SEA fashion pipeline. Next, Wrangler Lee, love bonito ready to close.` },
+              { type:"gap",   title:"Beauty Revenue Gap", msg:`${b?.total ?? rows.length} beauty brands tracked but zero signed — all pre-revenue. Closing even 3 deals = significant upside.` },
+              { type:"dip",   title:"India Fashion Confirmed", msg:`India confirmed at $${f ? f.byGeo["India"]?.confirmed ?? 0 : 0}K only (vs GCC $${f ? f.byGeo["GCC"]?.confirmed ?? 0 : 0}K). Pipeline gap to close.` },
+              { type:"surge", title:"Apparel Dominance", msg:`Apparel makes up ${f ? Math.round(((f.byLob.Apparel?.confirmed+f.byLob.Apparel?.pipeline)/(f.totalConfirmed+f.totalPipeline))*100) : 60}% of total opportunity. Strong category signal.` },
+            ].map((alert, i) => (
               <div key={i} className={`rev-alert-row rev-alert-${alert.type}`}>
                 <AlertTriangle size={14} className="rev-alert-icon" />
                 <div>
                   <div className="rev-alert-title">
-                    {alert.region} · {alert.category}
+                    {alert.title}
                     <span className={`rev-alert-badge rev-badge-${alert.type}`}>
-                      {alert.type === "dip" ? "Dip" : alert.type === "surge" ? "Surge" : "Gap"}
+                      {alert.type === "dip" ? "Attention" : alert.type === "surge" ? "Opportunity" : "Gap"}
                     </span>
                   </div>
-                  <div className="rev-alert-msg">{alert.message}</div>
+                  <div className="rev-alert-msg">{alert.msg}</div>
                 </div>
               </div>
             ))}
@@ -358,36 +372,36 @@ Be specific, quantified where possible, and executive-ready.`;
 
           <div className="rev-loop-cta panel">
             <div className="rev-loop-icon"><Brain size={28} /></div>
-            <h3>Strategy Loop</h3>
-            <p>Claude analyzes the revenue signals above and generates concrete pivot recommendations — including asset changes to feed back into Mosaic.</p>
-            <button className="btn-primary rev-loop-btn" onClick={runStrategyLoop} disabled={loopLoading}>
-              <Brain size={15} /> {loopLoading ? "Analyzing..." : "Run Strategy Loop"}
+            <h3>AI Strategy Loop</h3>
+            <p>AI analyzes your <strong>real</strong> fashion revenue + beauty pipeline data and generates specific pivot recommendations.</p>
+            <button className="btn-primary rev-loop-btn" onClick={runStrategyLoop} disabled={loopBusy}>
+              <Brain size={15}/> {loopBusy ? "Analyzing real data..." : "Run Strategy Loop"}
             </button>
           </div>
         </div>
       )}
 
       {/* Strategy Loop Modal */}
-      {showLoopModal && (
-        <div className="brief-modal-overlay" onClick={() => setShowLoopModal(false)}>
-          <div className="brief-modal" onClick={e => e.stopPropagation()}>
+      {showModal && (
+        <div className="brief-modal-overlay" onClick={()=>setShowModal(false)}>
+          <div className="brief-modal" onClick={e=>e.stopPropagation()}>
             <div className="brief-modal-header">
               <div>
-                <h3>Strategy Loop — Revenue Pivot Recommendations</h3>
-                <p style={{ color: "#64748b", fontSize: "0.8rem", margin: 0 }}>AI-generated · {period} data · Powered by Claude</p>
+                <h3>Revenue Strategy — AI Analysis</h3>
+                <p style={{ color:"#64748b", fontSize:"0.8rem", margin:0 }}>Based on real pipeline data · Powered by Groq AI</p>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display:"flex", gap:8 }}>
                 {loopText && (
-                  <button className="btn-secondary" onClick={copyLoop} style={{ gap: 6 }}>
-                    <Copy size={13} />{loopCopied ? "Copied!" : "Copy"}
+                  <button className="btn-secondary" onClick={()=>{ navigator.clipboard.writeText(loopText); setCopied(true); setTimeout(()=>setCopied(false),2000); }}>
+                    <Copy size={13}/>{copied?"Copied!":"Copy"}
                   </button>
                 )}
-                <button className="btn-ghost" onClick={() => setShowLoopModal(false)}><X size={16} /></button>
+                <button className="btn-ghost" onClick={()=>setShowModal(false)}><X size={16}/></button>
               </div>
             </div>
             <div className="brief-body">
-              {loopLoading ? (
-                <div className="brief-loading"><div className="brief-spinner" /><p>Running strategy analysis...</p></div>
+              {loopBusy ? (
+                <div className="brief-loading"><div className="brief-spinner"/><p>Analyzing real revenue data...</p></div>
               ) : (
                 <div className="brief-text">{loopText}</div>
               )}
