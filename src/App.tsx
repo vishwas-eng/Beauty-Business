@@ -12,6 +12,7 @@ import { ResearchLabPage } from "./routes/ResearchLabPage";
 import { InventoryPage } from "./routes/InventoryPage";
 import { SheetMasterPage } from "./routes/SheetMasterPage";
 import { BrainPage } from "./routes/BrainPage";
+import { DataStudioPage } from "./routes/DataStudioPage";
 import { LoginPage } from "./routes/LoginPage";
 
 function ProtectedRoutes() {
@@ -39,6 +40,7 @@ function ProtectedRoutes() {
         <Route path="/inventory" element={<InventoryPage />} />
         <Route path="/sheet-master" element={<SheetMasterPage />} />
         <Route path="/brain" element={<BrainPage />} />
+        <Route path="/data-studio" element={<DataStudioPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppShell>
