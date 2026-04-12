@@ -21,6 +21,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Research Lab",   icon: FlaskConical, path: "/research",  section: "growth", badge: "NEW" },
   { label: "Inventory",      icon: Layers,       path: "/inventory",     section: "growth", badge: "NEW" },
   { label: "Sheet Master",   icon: Brain,        path: "/sheet-master",  section: "growth", badge: "AI"  },
+  { label: "One Brain",      icon: Brain,        path: "/brain",         section: "growth", badge: "AI"  },
 ];
 
 export const REQUIRED_HEADERS = [
