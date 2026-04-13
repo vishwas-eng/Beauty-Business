@@ -105,7 +105,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="sidebar-section">
           <p className="sidebar-section-label">Workspace</p>
           <nav className="sidebar-nav" aria-label="Product navigation">
-            {NAV_ITEMS.filter(n => !n.section || n.section === "workspace").map(({ label, icon: Icon, path }) => {
+            {NAV_ITEMS.filter(n => n.section === "workspace").map(({ label, icon: Icon, path }) => {
               const isActive =
                 path === "/"
                   ? location.pathname === "/"
@@ -119,11 +119,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                 >
                   <Icon size={16} />
                   <span>{label}</span>
-                  {(label === "Intelligence" || label === "Image Studio") && (
-                    <span className="sidebar-section-badge" style={{ marginLeft: "auto" }}>
-                      {label === "Image Studio" ? "✨" : "NEW"}
-                    </span>
-                  )}
                 </div>
               );
             })}
@@ -134,10 +129,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="sidebar-section">
           <p className="sidebar-section-label">
             Growth Suite
-            <span className="sidebar-section-badge" style={{ background: "#FF580020", color: "#FF5800", border: "1px solid #FF580040" }}>NEW</span>
           </p>
           <nav className="sidebar-nav">
-            {NAV_ITEMS.filter(n => n.section === "growth").map(({ label, icon: Icon, path }) => {
+            {NAV_ITEMS.filter(n => n.section === "growth" && !n.comingSoon).map(({ label, icon: Icon, path, badge }) => {
               const isActive = location.pathname.startsWith(`/${path.split("/")[1]}`);
               return (
                 <div
@@ -148,11 +142,36 @@ export function AppShell({ children }: { children: ReactNode }) {
                 >
                   <Icon size={16} />
                   <span>{label}</span>
+                  {badge && (
+                    <span className="sidebar-section-badge" style={{ marginLeft: "auto" }}>{badge}</span>
+                  )}
                 </div>
               );
             })}
           </nav>
         </div>
+
+        {/* Coming Soon */}
+        {NAV_ITEMS.some(n => n.comingSoon) && (
+          <div className="sidebar-section">
+            <p className="sidebar-section-label">
+              Coming Soon
+              <span className="sidebar-section-badge" style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.35)", border: "1px solid rgba(255,255,255,0.1)" }}>SOON</span>
+            </p>
+            <nav className="sidebar-nav">
+              {NAV_ITEMS.filter(n => n.comingSoon).map(({ label, icon: Icon }) => (
+                <div
+                  key={label}
+                  className="sidebar-link sidebar-link-disabled"
+                  style={{ cursor: "default", opacity: 0.4 }}
+                >
+                  <Icon size={16} />
+                  <span>{label}</span>
+                </div>
+              ))}
+            </nav>
+          </div>
+        )}
 
         {/* AI Tools */}
         <div className="sidebar-section">
@@ -269,7 +288,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span className="lumara-by">by Opptra</span>
             </div>
             <p className="subdued">
-              AI-powered beauty brand pipeline intelligence.
+              AI-powered Beauty + Fashion pipeline intelligence.
             </p>
           </div>
 

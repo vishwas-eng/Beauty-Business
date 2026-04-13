@@ -6,24 +6,26 @@ export interface NavItem {
   path: string;
   section?: "workspace" | "growth";
   badge?: string;
+  comingSoon?: boolean;
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  // Workspace
-  { label: "Dashboard",      icon: BarChart3,  path: "/",                      section: "workspace" },
-  { label: "Brand 360",      icon: FileText,   path: "/brand/brand-nudestix",  section: "workspace" },
-  { label: "Intelligence",   icon: Brain,      path: "/intel",                 section: "workspace" },
-  { label: "Image Studio",   icon: ImageIcon,  path: "/studio",                section: "workspace" },
-  // Growth
-  { label: "Strategy",       icon: Map,          path: "/strategy",  section: "growth", badge: "NEW" },
-  { label: "Mosaic Bridge",  icon: Package,      path: "/mosaic",    section: "growth", badge: "NEW" },
-  { label: "Revenue Suite",  icon: TrendingUp,   path: "/revenue",   section: "growth", badge: "NEW" },
-  { label: "Research Lab",   icon: FlaskConical, path: "/research",  section: "growth", badge: "NEW" },
-  { label: "Inventory",      icon: Layers,       path: "/inventory",     section: "growth", badge: "NEW" },
-  { label: "Sheet Master",   icon: Brain,        path: "/sheet-master",  section: "growth", badge: "AI"  },
+  // Workspace — core pages (live)
+  { label: "Dashboard",      icon: BarChart3,    path: "/",                      section: "workspace" },
+  { label: "Brand 360",      icon: FileText,     path: "/brand/brand-nudestix",  section: "workspace" },
+  { label: "Revenue Suite",  icon: TrendingUp,   path: "/revenue",               section: "workspace" },
+  { label: "Presentation",   icon: Monitor,      path: "/presentation",          section: "workspace" },
+  // Growth — live features
   { label: "One Brain",      icon: Brain,        path: "/brain",         section: "growth", badge: "AI"  },
   { label: "Data Workspace", icon: Database,     path: "/data-studio",   section: "growth", badge: "NEW" },
-  { label: "Presentation",  icon: Monitor,      path: "/presentation",  section: "growth", badge: "NEW" },
+  // Coming Soon
+  { label: "Intelligence",   icon: Brain,        path: "/intel",         section: "growth", comingSoon: true },
+  { label: "Image Studio",   icon: ImageIcon,    path: "/studio",        section: "growth", comingSoon: true },
+  { label: "Strategy",       icon: Map,          path: "/strategy",      section: "growth", comingSoon: true },
+  { label: "Mosaic Bridge",  icon: Package,      path: "/mosaic",        section: "growth", comingSoon: true },
+  { label: "Research Lab",   icon: FlaskConical, path: "/research",      section: "growth", comingSoon: true },
+  { label: "Inventory",      icon: Layers,       path: "/inventory",     section: "growth", comingSoon: true },
+  { label: "Sheet Master",   icon: Brain,        path: "/sheet-master",  section: "growth", comingSoon: true },
 ];
 
 export const REQUIRED_HEADERS = [
