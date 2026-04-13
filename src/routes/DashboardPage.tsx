@@ -1,20 +1,20 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, Copy, Download, RefreshCcw, Sparkles, Workflow, X, Zap } from "lucide-react";
+import { Check, ChevronDown, Copy, Download, RefreshCcw, Sparkles, X, Zap } from "lucide-react";
 import {
   CategoryBarChart,
   CycleTimeChart,
   DonutBreakdownChart,
   HeatmapChart,
-  RevenueTrendChart,
   StageStackedChart
 } from "../components/ChartCard";
 import { KpiCard } from "../components/KpiCard";
 import { PerformanceTable } from "../components/PerformanceTable";
 import { TimeRangeTabs } from "../components/TimeRangeTabs";
-import { fetchDashboard, queryAgent, refreshSource, runAutomation } from "../lib/api";
+import { fetchDashboard, queryAgent, refreshSource } from "../lib/api";
 import { formatDateTime } from "../lib/format";
-import { findCompetitiveOverlaps } from "../lib/scoring";
 import { DashboardPayload, PerformanceRow, TimeRange } from "../types/domain";
+
+type Vertical = "beauty" | "fashion" | "all";
 
 const ACTIVE_STATUSES = ["Leads", "Lead", "MQL", "SQL", "Commercials", "OD", "Contract", "Onboarding"];
 const LATE_STAGE_STATUSES = ["Commercials", "OD", "Contract", "Onboarding"];
@@ -62,10 +62,12 @@ const DISCUSSION_START_DATES: Record<string, string> = {
 
 function normalizeCategory(category?: string) {
   const value = (category ?? "").trim();
-  if (value === "Mens Grooming") {
-    return "Mens' Grooming";
-  }
+  if (value === "Mens Grooming") return "Mens' Grooming";
   return value;
+}
+
+function isFashionRow(row: PerformanceRow) {
+  return normalizeCategory(row.category).startsWith("Fashion");
 }
 
 function opportunityKey(row: Pick<PerformanceRow, "brand" | "launchMarket">) {
@@ -77,30 +79,23 @@ function ageFromDiscussionDate(row: Pick<PerformanceRow, "brand" | "launchMarket
     "discussionStartDate" in row && typeof row.discussionStartDate === "string" && row.discussionStartDate
       ? row.discussionStartDate
       : DISCUSSION_START_DATES[opportunityKey(row)];
-  if (!discussionDate) {
-    return row.workingDays;
-  }
+  if (!discussionDate) return row.workingDays;
   const diff = AS_OF_DATE.getTime() - new Date(`${discussionDate}T00:00:00Z`).getTime();
   return Math.max(0, Math.round(diff / 86400000));
 }
 
 function isExecutiveOpportunity(row: PerformanceRow) {
   const brand = row.brand.trim();
-  if (!brand || EXCLUDED_BRANDS.has(brand)) {
-    return false;
-  }
+  if (!brand || EXCLUDED_BRANDS.has(brand)) return false;
   const cat = normalizeCategory(row.category);
-  if (!cat || cat === "Unassigned") {
-    return false;
-  }
-  // Fashion/Softlines rows are always eligible — they come from a separate verified source
+  if (!cat || cat === "Unassigned") return false;
   const isFashion = cat.startsWith("Fashion");
   return Boolean(
     row.segment?.trim() &&
-      row.sourceCountry?.trim() &&
-      row.launchMarket.trim() &&
-      row.status.trim() &&
-      (isFashion || row.discussionStartDate || DISCUSSION_START_DATES[opportunityKey(row)])
+    row.sourceCountry?.trim() &&
+    row.launchMarket.trim() &&
+    row.status.trim() &&
+    (isFashion || row.discussionStartDate || DISCUSSION_START_DATES[opportunityKey(row)])
   );
 }
 
@@ -150,54 +145,73 @@ function summarizeCountsByUniqueBrand(rows: PerformanceRow[], selector: (row: Pe
 
 function buildStageStack(
   rows: PerformanceRow[],
-  groupBy: (row: PerformanceRow) => string,
-  countMode: "opportunity" | "brand"
+  groupBy: (row: PerformanceRow) => string
 ) {
-  const grouped = new Map<string, Record<string, number> | Map<string, Set<string>>>();
-
+  const grouped = new Map<string, Record<string, number>>();
   rows.forEach((row) => {
     const group = groupBy(row) || "Unclassified";
     const stage = STACK_STAGES.includes(row.status) ? row.status : "Reject";
-
-    if (!grouped.has(group)) {
-      grouped.set(group, countMode === "brand" ? new Map<string, Set<string>>() : {});
-    }
-
-    if (countMode === "brand") {
-      const stageMap = grouped.get(group) as Map<string, Set<string>>;
-      const brands = stageMap.get(stage) ?? new Set<string>();
-      brands.add(row.brand);
-      stageMap.set(stage, brands);
-    } else {
-      const stageMap = grouped.get(group) as Record<string, number>;
-      stageMap[stage] = (stageMap[stage] ?? 0) + 1;
-    }
+    if (!grouped.has(group)) grouped.set(group, {});
+    const stageMap = grouped.get(group)!;
+    stageMap[stage] = (stageMap[stage] ?? 0) + 1;
   });
-
   return Array.from(grouped.entries())
     .map(([name, value]) => {
       const base: Record<string, string | number> = { name };
-      STACK_STAGES.forEach((stage) => {
-        if (countMode === "brand") {
-          base[stage] = (value as Map<string, Set<string>>).get(stage)?.size ?? 0;
-        } else {
-          base[stage] = (value as Record<string, number>)[stage] ?? 0;
-        }
-      });
+      STACK_STAGES.forEach((stage) => { base[stage] = value[stage] ?? 0; });
       return base;
     })
-    .sort(
-      (left, right) =>
-        Number(right.Leads) + Number(right.MQL) + Number(right.Commercials) - (Number(left.Leads) + Number(left.MQL) + Number(left.Commercials))
+    .sort((a, b) =>
+      Number(b.Leads) + Number(b.MQL) + Number(b.Commercials) -
+      (Number(a.Leads) + Number(a.MQL) + Number(a.Commercials))
     );
 }
+
+function buildPipelineContext(rows: PerformanceRow[], vertical: Vertical): string {
+  const label = vertical === "all" ? "All Verticals" : vertical === "fashion" ? "Fashion / Softlines" : "Beauty";
+  const active = rows.filter(r => ACTIVE_STATUSES.includes(r.status));
+  const onHold = rows.filter(r => r.status === "Hold");
+  const lateStage = rows.filter(r => LATE_STAGE_STATUSES.includes(r.status));
+  const stale = rows.filter(r => r.workingDays > 45);
+
+  const markets = summarizeCountsByOpportunity(rows, r => r.launchMarket)
+    .sort((a, b) => b[1] - a[1]).map(([m, c]) => `${m}: ${c}`).join(", ");
+  const stages = summarizeCountsByOpportunity(rows, r => r.status)
+    .sort((a, b) => b[1] - a[1]).map(([s, c]) => `${s}: ${c}`).join(", ");
+  const categories = summarizeCountsByUniqueBrand(rows, r => r.category)
+    .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([c, n]) => `${c}: ${n} brands`).join(", ");
+  const topBrands = summarizeCountsByOpportunity(rows, r => r.brand)
+    .sort((a, b) => b[1] - a[1]).slice(0, 10).map(([b, c]) => `${b} (${c})`).join(", ");
+  const latePipeline = lateStage.slice(0, 8).map(r => `${r.brand} – ${r.launchMarket} (${r.status})`).join("; ");
+  const staleList = stale.slice(0, 6).map(r => `${r.brand} (${r.workingDays}d, ${r.status})`).join("; ");
+  const holdList = onHold.slice(0, 6).map(r => `${r.brand}: ${r.holdReason || "no reason"}`).join("; ");
+
+  return [
+    `=== LIVE PIPELINE DATA (${label}) ===`,
+    `Total: ${rows.length} opportunities | ${countUniqueBrands(rows)} brands`,
+    `Active: ${active.length} | On Hold: ${onHold.length} | Commercials+: ${lateStage.length} | Stale >45d: ${stale.length}`,
+    `Markets: ${markets || "none"}`,
+    `Stage breakdown: ${stages || "none"}`,
+    `Top categories: ${categories || "none"}`,
+    `Top brands: ${topBrands || "none"}`,
+    `Late-stage pipeline: ${latePipeline || "none"}`,
+    `Stale opportunities: ${staleList || "none"}`,
+    `On hold: ${holdList || "none"}`
+  ].join("\n");
+}
+
+const VERTICAL_LABELS: Record<Vertical, string> = {
+  beauty: "Beauty",
+  fashion: "Fashion",
+  all: "All"
+};
 
 export function DashboardPage() {
   const [range, setRange] = useState<TimeRange>("mtd");
   const [payload, setPayload] = useState<DashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [automationBusy, setAutomationBusy] = useState(false);
+  const [vertical, setVertical] = useState<Vertical>("beauty");
   const [marketFilter, setMarketFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [briefOpen, setBriefOpen] = useState(false);
@@ -209,10 +223,15 @@ export function DashboardPage() {
 
   useEffect(() => {
     setLoading(true);
-    void fetchDashboard(range)
-      .then(setPayload)
-      .finally(() => setLoading(false));
+    void fetchDashboard(range).then(setPayload).finally(() => setLoading(false));
   }, [range]);
+
+  // Reset sub-filters when vertical changes
+  function handleVerticalChange(v: Vertical) {
+    setVertical(v);
+    setMarketFilter("all");
+    setCategoryFilter("all");
+  }
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -221,20 +240,12 @@ export function DashboardPage() {
     setRefreshing(false);
   }
 
-  async function handleAutomationRun() {
-    setAutomationBusy(true);
-    await runAutomation(range);
-    const next = await fetchDashboard(range);
-    setPayload(next);
-    setAutomationBusy(false);
-  }
-
-  async function generateBrief() {
+  async function generateBrief(context: string) {
     setBriefOpen(true);
     setBriefLoading(true);
     setBriefText("");
     const res = await queryAgent(
-      "Generate a concise weekly executive brief for our beauty brand pipeline. Write as a senior analyst briefing a VP before a Monday meeting. Include: 1) One-line pipeline snapshot with key numbers, 2) Top 2 risks or blockers with specific brand/market examples, 3) Late-stage pipeline update, 4) 3 recommended actions for this week. Under 200 words. Be direct and specific."
+      `${context}\n\nUsing ONLY the pipeline data above, generate a concise executive brief (under 200 words). Write as a senior analyst briefing a VP before a Monday meeting. Include: 1) One-line pipeline snapshot with exact numbers from the data, 2) Top 2 risks or blockers with specific brand/market examples from the data, 3) Late-stage pipeline update with actual brand names, 4) 3 recommended actions for this week. Be direct and specific — only reference brands and numbers from the data provided.`
     );
     setBriefText(res.answer);
     setBriefLoading(false);
@@ -246,11 +257,11 @@ export function DashboardPage() {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  async function scanOpportunities() {
+  async function scanOpportunities(context: string) {
     setOppsLoading(true);
     setOppsText("");
     const res = await queryAgent(
-      "Scan the pipeline and identify 3-5 proactive opportunities we are missing or should act on urgently. Look for: open market slots with no brand in that category yet, brands that are close to closing with no next step set, categories that are underrepresented in a key market, and any quick wins we could unlock this week. Be specific — name actual brands and markets. Format as a numbered list."
+      `${context}\n\nUsing ONLY the pipeline data above, identify 3-5 proactive opportunities we should act on urgently. Look for: brands close to late-stage with no momentum, markets with thin coverage, categories underrepresented in key markets, quick wins this week. Name actual brands and markets from the data. Format as a numbered list.`
     );
     setOppsText(res.answer);
     setOppsLoading(false);
@@ -264,131 +275,99 @@ export function DashboardPage() {
     return <div className="page-loader">Preparing analytics...</div>;
   }
 
+  // Step 1: quality filter
   const cleanRows = payload.performance.filter(isExecutiveOpportunity).map(normalizeRow);
-  const filteredRows = cleanRows.filter((row) => {
+
+  // Step 2: vertical filter (Beauty / Fashion / All)
+  const verticalRows = cleanRows.filter(row => {
+    if (vertical === "all") return true;
+    return vertical === "fashion" ? isFashionRow(row) : !isFashionRow(row);
+  });
+
+  // Step 3: market + category filter
+  const marketCounts = summarizeCountsByOpportunity(verticalRows, r => r.launchMarket)
+    .sort(([a], [b]) => a.localeCompare(b));
+  const categoryCounts = summarizeCountsByUniqueBrand(verticalRows, r => r.category)
+    .sort(([a], [b]) => a.localeCompare(b));
+  const availableMarkets = marketCounts.map(([m]) => m);
+  const availableCategories = categoryCounts.map(([c]) => c);
+
+  const filteredRows = verticalRows.filter(row => {
     const matchesMarket = marketFilter === "all" || row.launchMarket === marketFilter;
     const matchesCategory = categoryFilter === "all" || row.category === categoryFilter;
     return matchesMarket && matchesCategory;
   });
 
-  const marketCounts = summarizeCountsByOpportunity(cleanRows, (row) => row.launchMarket).sort(([left], [right]) =>
-    left.localeCompare(right)
-  );
-  const categoryCounts = summarizeCountsByUniqueBrand(cleanRows, (row) => row.category).sort(([left], [right]) =>
-    left.localeCompare(right)
-  );
-  const availableMarkets = marketCounts.map(([market]) => market);
-  const availableCategories = categoryCounts.map(([category]) => category);
-
-  const activeRows = filteredRows.filter((row) => ACTIVE_STATUSES.includes(row.status));
-  const holdRows = filteredRows.filter((row) => row.status === "Hold");
-  const rejectRows = filteredRows.filter((row) => row.status === "Reject");
-  const lateStageRows = filteredRows.filter((row) => LATE_STAGE_STATUSES.includes(row.status));
-  const staleRows = filteredRows.filter((row) => row.workingDays > 45);
-
-  const priorityRows = [...filteredRows].sort((left, right) => right.workingDays - left.workingDays).slice(0, 8);
-  const agingRows = [...filteredRows]
-    .filter((row) => ACTIVE_STATUSES.includes(row.status) || row.status === "Hold")
-    .sort((left, right) => right.workingDays - left.workingDays)
-    .slice(0, 8)
-    .map((row) => ({
-      brand: `${row.brand} · ${row.launchMarket}`,
-      workingDays: row.workingDays
-    }));
-
-  const categoryMix = summarizeCountsByUniqueBrand(filteredRows, (row) => row.category)
-    .map(([category, count]) => ({ category, revenue: count, inventoryValue: Math.max(1, Math.round(count / 2)) }))
-    .sort((left, right) => right.revenue - left.revenue);
-  const marketMix = summarizeCountsByOpportunity(filteredRows, (row) => row.launchMarket)
-    .map(([category, count]) => ({ category, revenue: count, inventoryValue: Math.max(1, Math.round(count / 2)) }))
-    .sort((left, right) => right.revenue - left.revenue);
-  const segmentMix = summarizeCountsByOpportunity(filteredRows, (row) => row.segment || "Unassigned")
-    .map(([category, count]) => ({ category, revenue: count, inventoryValue: Math.max(1, Math.round(count / 2)) }))
-    .sort((left, right) => right.revenue - left.revenue);
-  const sourceCountryMix = summarizeCountsByOpportunity(filteredRows, (row) => row.sourceCountry || "Unassigned")
-    .map(([category, count]) => ({ category, revenue: count, inventoryValue: Math.max(1, Math.round(count / 2)) }))
-    .sort((left, right) => right.revenue - left.revenue);
-  const brandLeaderboard = summarizeCountsByOpportunity(filteredRows, (row) => row.brand)
-    .map(([category, count]) => ({ category, revenue: count, inventoryValue: count }))
-    .sort((left, right) => right.revenue - left.revenue || left.category.localeCompare(right.category))
-    .slice(0, 12);
-  const stageMix = summarizeCountsByOpportunity(filteredRows, (row) => row.status)
-    .map(([category, count]) => ({ category, revenue: count, inventoryValue: count }))
-    .sort((left, right) => right.revenue - left.revenue);
-  const transitionTiming = [
-    {
-      category: "Lead to MQL",
-      values: filteredRows.filter((item) => typeof item.leadToMqlDays === "number").map((item) => item.leadToMqlDays ?? 0)
-    },
-    {
-      category: "MQL to SQL",
-      values: filteredRows.filter((item) => typeof item.mqlToSqlDays === "number").map((item) => item.mqlToSqlDays ?? 0)
-    },
-    {
-      category: "SQL to Commercials",
-      values: filteredRows.filter((item) => typeof item.sqlToCommercialsDays === "number").map((item) => item.sqlToCommercialsDays ?? 0)
-    },
-    {
-      category: "Commercials to OD",
-      values: filteredRows.filter((item) => typeof item.commercialsToOdDays === "number").map((item) => item.commercialsToOdDays ?? 0)
-    }
-  ]
-    .map(({ category, values }) => ({
-      category,
-      revenue: values.length ? Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10 : 0,
-      inventoryValue: 0
-    }))
-    .filter((item) => item.revenue > 0);
-  const avgLeadToMql = transitionTiming.find((item) => item.category === "Lead to MQL")?.revenue ?? 0;
-  const avgMqlToSql = transitionTiming.find((item) => item.category === "MQL to SQL")?.revenue ?? 0;
-  const stageVelocityData = ["Leads", "MQL", "SQL", "Commercials", "Hold", "Reject"].map((stage) => {
-    const rows = filteredRows.filter((row) => row.status === stage);
-    const transitionLookup: Record<string, number> = {
-      Leads: avgLeadToMql,
-      MQL: avgMqlToSql,
-      SQL: transitionTiming.find((item) => item.category === "SQL to Commercials")?.revenue ?? 0,
-      Commercials: transitionTiming.find((item) => item.category === "Commercials to OD")?.revenue ?? 0,
-      Hold: holdRows.length ? Math.round(holdRows.reduce((sum, row) => sum + row.workingDays, 0) / holdRows.length) : 0,
-      Reject: rejectRows.length ? Math.round(rejectRows.reduce((sum, row) => sum + row.workingDays, 0) / rejectRows.length) : 0
-    };
-    return {
-      label: stage,
-      primary: rows.length,
-      secondary: rows.length ? Math.round(rows.reduce((sum, row) => sum + row.workingDays, 0) / rows.length) : 0,
-      tertiary: transitionLookup[stage] ?? 0
-    };
-  });
-  const holdReasonMix = summarizeCountsByOpportunity(
-    filteredRows.filter((item) => item.status === "Hold" && item.holdReason),
-    (row) => row.holdReason || "Other"
-  )
-    .map(([category, count]) => ({ category, revenue: count, inventoryValue: count }))
-    .sort((left, right) => right.revenue - left.revenue);
-  const pipelineQuality = [
-    { category: "Active", revenue: activeRows.length, inventoryValue: activeRows.length },
-    { category: "Hold", revenue: holdRows.length, inventoryValue: holdRows.length },
-    { category: "Reject", revenue: rejectRows.length, inventoryValue: rejectRows.length }
-  ].filter((item) => item.revenue > 0);
-
-  const marketStageData = buildStageStack(filteredRows, (row) => row.launchMarket, "opportunity");
-  const categoryStageData = buildStageStack(filteredRows, (row) => row.category, "opportunity");
-  const heatmapRows = categoryMix.map((item) => item.category);
-  const heatmapColumns = ["Under Discussion", "India", "SEA", "GCC"].filter((market) =>
-    filteredRows.some((row) => row.launchMarket === market)
-  );
-  const heatmapValues = filteredRows.reduce<Record<string, Record<string, number>>>((acc, row) => {
-    const category = row.category;
-    const market = row.launchMarket;
-    acc[category] ??= {};
-    acc[category][market] = (acc[category][market] ?? 0) + 1;
-    return acc;
-  }, {});
+  // Derived rows
+  const activeRows = filteredRows.filter(r => ACTIVE_STATUSES.includes(r.status));
+  const holdRows = filteredRows.filter(r => r.status === "Hold");
+  const rejectRows = filteredRows.filter(r => r.status === "Reject");
+  const lateStageRows = filteredRows.filter(r => LATE_STAGE_STATUSES.includes(r.status));
+  const staleRows = filteredRows.filter(r => r.workingDays > 45);
 
   const totalOpportunities = filteredRows.length;
   const uniqueBrands = countUniqueBrands(filteredRows);
   const holdPercent = totalOpportunities ? Math.round((holdRows.length / totalOpportunities) * 100) : 0;
-  const competitiveOverlaps = findCompetitiveOverlaps(filteredRows);
-  const rowsWithNextStep = filteredRows.filter((row) => row.nextStep?.trim()).length;
+
+  // Chart data
+  const categoryMix = summarizeCountsByUniqueBrand(filteredRows, r => r.category)
+    .map(([c, n]) => ({ category: c, revenue: n, inventoryValue: Math.max(1, Math.round(n / 2)) }))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  const stageMix = summarizeCountsByOpportunity(filteredRows, r => r.status)
+    .map(([s, n]) => ({ category: s, revenue: n, inventoryValue: n }))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  const holdReasonMix = summarizeCountsByOpportunity(
+    filteredRows.filter(r => r.status === "Hold" && r.holdReason),
+    r => r.holdReason || "Other"
+  )
+    .map(([c, n]) => ({ category: c, revenue: n, inventoryValue: n }))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  const brandLeaderboard = summarizeCountsByOpportunity(filteredRows, r => r.brand)
+    .map(([b, n]) => ({ category: b, revenue: n, inventoryValue: n }))
+    .sort((a, b) => b.revenue - a.revenue || a.category.localeCompare(b.category))
+    .slice(0, 12);
+
+  const marketStageData = buildStageStack(filteredRows, r => r.launchMarket);
+
+  const transitionTiming = [
+    { category: "Lead → MQL", values: filteredRows.filter(r => typeof r.leadToMqlDays === "number").map(r => r.leadToMqlDays ?? 0) },
+    { category: "MQL → SQL", values: filteredRows.filter(r => typeof r.mqlToSqlDays === "number").map(r => r.mqlToSqlDays ?? 0) },
+    { category: "SQL → Commercials", values: filteredRows.filter(r => typeof r.sqlToCommercialsDays === "number").map(r => r.sqlToCommercialsDays ?? 0) },
+    { category: "Commercials → OD", values: filteredRows.filter(r => typeof r.commercialsToOdDays === "number").map(r => r.commercialsToOdDays ?? 0) }
+  ]
+    .map(({ category, values }) => ({
+      category,
+      revenue: values.length ? Math.round(values.reduce((s, v) => s + v, 0) / values.length * 10) / 10 : 0,
+      inventoryValue: 0
+    }))
+    .filter(item => item.revenue > 0);
+
+  const avgLeadToMql = transitionTiming.find(t => t.category === "Lead → MQL")?.revenue ?? 0;
+  const avgMqlToSql = transitionTiming.find(t => t.category === "MQL → SQL")?.revenue ?? 0;
+
+  const agingRows = [...filteredRows]
+    .filter(r => ACTIVE_STATUSES.includes(r.status) || r.status === "Hold")
+    .sort((a, b) => b.workingDays - a.workingDays)
+    .slice(0, 8)
+    .map(r => ({ brand: `${r.brand} · ${r.launchMarket}`, workingDays: r.workingDays }));
+
+  const heatmapRows = categoryMix.map(c => c.category);
+  const heatmapColumns = ["Under Discussion", "India", "SEA", "GCC"].filter(m =>
+    filteredRows.some(r => r.launchMarket === m)
+  );
+  const heatmapValues = filteredRows.reduce<Record<string, Record<string, number>>>((acc, row) => {
+    acc[row.category] ??= {};
+    acc[row.category][row.launchMarket] = (acc[row.category][row.launchMarket] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const priorityRows = [...filteredRows].sort((a, b) => b.workingDays - a.workingDays).slice(0, 8);
+
+  // Health score
+  const rowsWithNextStep = filteredRows.filter(r => r.nextStep?.trim()).length;
   const healthScore = Math.round(
     Math.min((activeRows.length / Math.max(totalOpportunities, 1)) * 30, 30) +
     (lateStageRows.length > 0 ? 20 : 0) +
@@ -398,186 +377,166 @@ export function DashboardPage() {
   );
   const healthTone = healthScore >= 75 ? "green" : healthScore >= 50 ? "orange" : "danger";
   const healthLabel = healthScore >= 75 ? "Healthy" : healthScore >= 50 ? "Needs attention" : "At risk";
-  const executiveMetrics = [
+
+  const kpiMetrics = [
     {
       label: "Total Opportunities",
       value: String(totalOpportunities),
-      delta: `${marketMix.length} markets covered`,
+      delta: `${marketMix(filteredRows).length} markets`,
       tone: "blue" as const,
-      hint: "Current opportunities in this view.",
-      detailTitle: "Launch market counts",
-      detailItems: marketCounts.map(([market, count]) => `${market} · ${count}`)
+      hint: "All opportunities in the current view.",
+      detailTitle: "By market",
+      detailItems: marketCounts.map(([m, c]) => `${m} · ${c}`)
     },
     {
       label: "Unique Brands",
       value: String(uniqueBrands),
-      delta: `${categoryMix.length} categories active`,
+      delta: `${categoryMix.length} categories`,
       tone: "green" as const,
-      hint: "Distinct brands in this view.",
-      detailTitle: "Brands included",
-      detailItems: Array.from(new Set(filteredRows.map((row) => row.brand))).sort()
+      hint: "Distinct brands in current view.",
+      detailTitle: "Brand list",
+      detailItems: Array.from(new Set(filteredRows.map(r => r.brand))).sort()
     },
     {
-      label: "Active Opportunities",
+      label: "Active",
       value: String(activeRows.length),
       delta: `${Math.round((activeRows.length / Math.max(totalOpportunities, 1)) * 100)}% of total`,
       tone: "purple" as const,
-      hint: "Opportunities that are still moving.",
-      detailTitle: "Active status mix",
-      detailItems: stageMix.filter((item) => ACTIVE_STATUSES.includes(item.category)).map((item) => `${item.category} · ${item.revenue}`)
+      hint: "Opportunities still moving through the pipeline.",
+      detailTitle: "Active by stage",
+      detailItems: stageMix.filter(s => ACTIVE_STATUSES.includes(s.category)).map(s => `${s.category} · ${s.revenue}`)
     },
     {
       label: "On Hold",
       value: `${holdPercent}%`,
       delta: `${holdRows.length} opportunities`,
       tone: "orange" as const,
-      hint: "Share of opportunities currently paused.",
+      hint: "Share of pipeline currently paused.",
       detailTitle: "Hold reasons",
-      detailItems: holdReasonMix.map((item) => `${item.category} · ${item.revenue}`)
+      detailItems: holdReasonMix.map(h => `${h.category} · ${h.revenue}`)
     },
     {
       label: "Commercials+",
       value: String(lateStageRows.length),
-      delta: lateStageRows.length ? "Late-stage pipeline present" : "No late-stage depth yet",
+      delta: lateStageRows.length ? "Late-stage pipeline active" : "No late-stage yet",
       tone: "green" as const,
-      hint: "Commercials, OD, contract, or onboarding-stage opportunities.",
+      hint: "Commercials, OD, Contract, or Onboarding stage.",
       detailTitle: "Late-stage opportunities",
-      detailItems: lateStageRows.length ? lateStageRows.map((row) => `${row.brand} · ${row.launchMarket}`) : ["No late-stage opportunities"]
-    },
-    {
-      label: "Avg Lead to MQL",
-      value: `${avgLeadToMql}d`,
-      delta: "Based on current stage movement",
-      tone: "blue" as const,
-      hint: "Average time taken to move a lead into MQL.",
-      detailTitle: "Lead to MQL examples",
-      detailItems: filteredRows.filter((row) => typeof row.leadToMqlDays === "number").slice(0, 12).map((row) => `${row.brand} · ${row.leadToMqlDays}d`)
-    },
-    {
-      label: "Avg MQL to SQL",
-      value: `${avgMqlToSql}d`,
-      delta: "Based on current stage movement",
-      tone: "purple" as const,
-      hint: "Average time taken to move MQL opportunities toward SQL.",
-      detailTitle: "MQL to SQL examples",
-      detailItems: filteredRows.filter((row) => typeof row.mqlToSqlDays === "number").slice(0, 12).map((row) => `${row.brand} · ${row.mqlToSqlDays}d`)
+      detailItems: lateStageRows.length ? lateStageRows.map(r => `${r.brand} · ${r.launchMarket}`) : ["None yet"]
     },
     {
       label: "Stale >45 Days",
       value: String(staleRows.length),
-      delta: "Based on discussion start date",
+      delta: "Need escalation or close",
       tone: "orange" as const,
-      hint: "Older opportunities likely needing escalation, closure, or re-qualification.",
-      detailTitle: "Oldest open opportunities",
-      detailItems: [...staleRows].sort((left, right) => right.workingDays - left.workingDays).slice(0, 12).map((row) => `${row.brand} · ${row.launchMarket} · ${row.workingDays}d`)
+      hint: "Open opportunities with no movement in 45+ days.",
+      detailTitle: "Oldest opportunities",
+      detailItems: [...staleRows].sort((a, b) => b.workingDays - a.workingDays).slice(0, 12).map(r => `${r.brand} · ${r.launchMarket} · ${r.workingDays}d`)
+    },
+    {
+      label: "Avg Lead → MQL",
+      value: avgLeadToMql ? `${avgLeadToMql}d` : "—",
+      delta: "Stage transition speed",
+      tone: "blue" as const,
+      hint: "Average days to move from Lead to MQL.",
+      detailTitle: "Examples",
+      detailItems: filteredRows.filter(r => typeof r.leadToMqlDays === "number").slice(0, 12).map(r => `${r.brand} · ${r.leadToMqlDays}d`)
+    },
+    {
+      label: "Avg MQL → SQL",
+      value: avgMqlToSql ? `${avgMqlToSql}d` : "—",
+      delta: "Stage transition speed",
+      tone: "purple" as const,
+      hint: "Average days to move from MQL to SQL.",
+      detailTitle: "Examples",
+      detailItems: filteredRows.filter(r => typeof r.mqlToSqlDays === "number").slice(0, 12).map(r => `${r.brand} · ${r.mqlToSqlDays}d`)
     }
   ];
 
-  const mostAdvancedMarket = marketStageData.find((item) => Number(item.Commercials) > 0)?.name ?? "SEA";
-  const mostEarlyStageMarket =
-    [...marketStageData].sort((left, right) => Number(right.Leads) - Number(left.Leads))[0]?.name ?? "India";
-  const mostBlockedMarket =
-    [...marketStageData].sort(
-      (left, right) => Number(right.Hold) + Number(right.Reject) - (Number(left.Hold) + Number(left.Reject))
-    )[0]?.name ?? "Under Discussion";
-  const topCategory = categoryMix[0]?.category ?? "Makeup";
-  const topHoldReason = holdReasonMix[0]?.category ?? "Too small";
+  const mostAdvancedMarket = marketStageData.find(m => Number(m.Commercials) > 0)?.name ?? "—";
+  const topCategory = categoryMix[0]?.category ?? "—";
+  const topHoldReason = holdReasonMix[0]?.category ?? "—";
+  const verticalLabel = VERTICAL_LABELS[vertical];
 
   const businessSummary = [
-    {
-      title: "Pipeline",
-      detail: `${totalOpportunities} opportunities are live across ${uniqueBrands} brands, with ${activeRows.length} still active and ${lateStageRows.length} in late-stage progress.`
-    },
-    {
-      title: "Region",
-      detail: `${mostAdvancedMarket} is furthest ahead, ${mostEarlyStageMarket} has the most early-stage activity, and ${mostBlockedMarket} has the highest paused concentration.`
-    },
-    {
-      title: "Category",
-      detail: `${topCategory} has the highest volume, while ${topHoldReason} is the biggest reason progress is slowing.`
-    }
+    { title: "Pipeline", detail: `${totalOpportunities} opportunities across ${uniqueBrands} brands — ${activeRows.length} active, ${lateStageRows.length} in late-stage.` },
+    { title: "Momentum", detail: `${mostAdvancedMarket !== "—" ? `${mostAdvancedMarket} leads in Commercials+.` : "No market in Commercials+ yet."} ${topCategory} is the top category by brand count.` },
+    { title: "Blockers", detail: `${holdRows.length} opportunities paused (${holdPercent}% of pipeline). Top reason: ${topHoldReason}. ${staleRows.length} entries are stale over 45 days.` }
   ];
 
-  const topInsights = [
-    {
-      title: "Pipeline balance",
-      detail: `${activeRows.length} opportunities are active, ${holdRows.length} are paused, and ${rejectRows.length} have been closed out from the current view.`
-    },
-    {
-      title: "Late-stage pipeline",
-      detail: `Only ${lateStageRows.length} opportunity is in Commercials+, so the pipeline is still top and mid-funnel heavy.`
-    },
-    {
-      title: "Main blocker",
-      detail: `${holdRows.length} opportunities are on hold in the current view, with ${topHoldReason} the biggest blocker.`
-    }
-  ];
+  // Build context for AI (uses filteredRows, not cleanRows)
+  const pipelineContext = buildPipelineContext(filteredRows, vertical);
 
   return (
     <div className="page-stack">
+      {/* ── Header ── */}
       <div className="hero-row">
         <div>
-          <div className="eyebrow">Beauty</div>
-          <p className="subdued">
-            Last updated {formatDateTime(payload.lastSyncedAt)}
-          </p>
+          <div className="eyebrow">{verticalLabel} Pipeline</div>
+          <p className="subdued">Last updated {formatDateTime(payload.lastSyncedAt)}</p>
         </div>
         <div className="action-row">
+          {/* Vertical toggle */}
+          <div className="vertical-toggle">
+            {(["beauty", "fashion", "all"] as Vertical[]).map(v => (
+              <button
+                key={v}
+                className={`vertical-toggle-btn${vertical === v ? " active" : ""}`}
+                onClick={() => handleVerticalChange(v)}
+                type="button"
+              >
+                {v === "beauty" ? "💄 Beauty" : v === "fashion" ? "👗 Fashion" : "🌐 All"}
+              </button>
+            ))}
+          </div>
+
+          {/* Market filter */}
           <label className="filter-select">
             <span>Market</span>
-            <select value={marketFilter} onChange={(event) => setMarketFilter(event.target.value)}>
-              <option value="all">{`All markets (${availableMarkets.length})`}</option>
-              {marketCounts.map(([market, count]) => (
-                <option key={market} value={market}>
-                  {`${market} (${count})`}
-                </option>
-              ))}
+            <select value={marketFilter} onChange={e => setMarketFilter(e.target.value)}>
+              <option value="all">All markets ({availableMarkets.length})</option>
+              {marketCounts.map(([m, c]) => <option key={m} value={m}>{m} ({c})</option>)}
             </select>
             <ChevronDown size={14} />
           </label>
+
+          {/* Category filter */}
           <label className="filter-select">
             <span>Category</span>
-            <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
-              <option value="all">{`All categories (${availableCategories.length})`}</option>
-              {categoryCounts.map(([category, count]) => (
-                <option key={category} value={category}>
-                  {`${category} (${count})`}
-                </option>
-              ))}
+            <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
+              <option value="all">All categories ({availableCategories.length})</option>
+              {categoryCounts.map(([c, n]) => <option key={c} value={c}>{c} ({n})</option>)}
             </select>
             <ChevronDown size={14} />
           </label>
+
           <TimeRangeTabs value={range} onChange={setRange} />
           <button className="secondary-button" onClick={handleRefresh} disabled={refreshing}>
             <RefreshCcw size={16} />
-            {refreshing ? "Refreshing..." : "Refresh now"}
+            {refreshing ? "Refreshing..." : "Refresh"}
           </button>
-          <button className="secondary-button" onClick={() => void handleAutomationRun()} disabled={automationBusy}>
-            <Workflow size={16} />
-            {automationBusy ? "Running automation..." : "Run automation"}
-          </button>
-          <button className="primary-button" onClick={() => void generateBrief()} type="button">
+          <button className="primary-button" onClick={() => void generateBrief(pipelineContext)} type="button">
             <Sparkles size={15} />
             Weekly Brief
-            <span className="beta-badge" style={{ marginLeft: 2 }}>BETA</span>
           </button>
-          <button className="secondary-button" onClick={exportPipeline} type="button" title="Export pipeline as PDF">
+          <button className="secondary-button" onClick={exportPipeline} type="button">
             <Download size={15} />
             Export
           </button>
         </div>
       </div>
 
+      {/* ── Summary Card ── */}
       <section>
         <div className="panel executive-summary">
           <div className="panel-header">
             <div>
-              <h2>Summary</h2>
-              <p>Key highlights from the current business view.</p>
+              <h2>Summary — {verticalLabel}</h2>
+              <p>Key highlights from the current view.</p>
             </div>
           </div>
           <div className="summary-grid">
-            {businessSummary.map((item) => (
+            {businessSummary.map(item => (
               <div key={item.title} className="summary-card">
                 <strong>{item.title}</strong>
                 <p>{item.detail}</p>
@@ -588,12 +547,12 @@ export function DashboardPage() {
             <span>{totalOpportunities} opportunities</span>
             <span>{uniqueBrands} brands</span>
             <span>{holdPercent}% on hold</span>
-            <span>{staleRows.length} stale over 45 days</span>
+            <span>{staleRows.length} stale &gt;45d</span>
           </div>
           <div className="health-score-row">
             <div className="health-score-info">
               <span>Pipeline Health</span>
-              <span className="beta-badge">BETA</span>
+              <span className="beta-badge">SCORE</span>
             </div>
             <div className="health-score-track">
               <div
@@ -610,101 +569,36 @@ export function DashboardPage() {
         </div>
       </section>
 
+      {/* ── KPI Cards ── */}
       <section className="kpi-grid">
-        {executiveMetrics.map((metric) => (
-          <KpiCard key={metric.label} metric={metric} />
-        ))}
+        {kpiMetrics.map(metric => <KpiCard key={metric.label} metric={metric} />)}
       </section>
 
-      <section className="insight-notes">
-        {topInsights.map((item) => (
-          <div key={item.title} className="insight-note">
-            <strong>{item.title}</strong>
-            <p>{item.detail}</p>
-          </div>
-        ))}
-      </section>
-
+      {/* ── Stage Funnel + Market Pipeline ── */}
       <section className="insight-grid">
-        <DonutBreakdownChart
-          title="Pipeline Quality"
-          subtitle="Current mix of active, on hold, and rejected opportunities."
-          data={pipelineQuality}
-          valueLabel="Opportunities"
-        />
         <CategoryBarChart
-          title="Funnel by Status"
-          subtitle="Opportunity count by stage."
+          title="Pipeline by Stage"
+          subtitle={`${verticalLabel} opportunities at each funnel stage.`}
           data={stageMix}
           keyName="revenue"
           valueLabel="Opportunities"
         />
-      </section>
-
-      <section className="insight-grid">
         <StageStackedChart
-          title="Launch Market by Status"
-          subtitle="How each target market is distributed across the current stages."
+          title="Market Stage Distribution"
+          subtitle={`How each target market is distributed across funnel stages.`}
           data={marketStageData}
         />
-        <StageStackedChart
-          title="Category by Status"
-          subtitle="How categories are progressing, pausing, or dropping out."
-          data={categoryStageData}
-        />
       </section>
 
+      {/* ── Category Breakdown + Brand Leaderboard ── */}
       <section className="insight-grid">
         <CategoryBarChart
-          title="Opportunities by Launch Market"
-          subtitle="Opportunity count by launch market."
-          data={marketMix}
-          keyName="revenue"
-          valueLabel="Opportunities"
-        />
-        <CategoryBarChart
-          title="Opportunities by Category"
-          subtitle="Unique brand count by category."
+          title="Brands by Category"
+          subtitle={`Unique brand count per category in ${verticalLabel.toLowerCase()} pipeline.`}
           data={categoryMix}
           keyName="revenue"
           valueLabel="Brands"
         />
-      </section>
-
-      <section className="insight-grid">
-        <DonutBreakdownChart
-          title="Segment Split"
-          subtitle="Mass, Masstige, and Premium opportunity mix."
-          data={segmentMix}
-          valueLabel="Opportunities"
-        />
-        <CategoryBarChart
-          title="Source Country Distribution"
-          subtitle="Where current opportunities are being sourced from."
-          data={sourceCountryMix}
-          keyName="revenue"
-          valueLabel="Opportunities"
-        />
-      </section>
-
-      <section className="insight-grid">
-        <DonutBreakdownChart
-          title="Hold Reasons"
-          subtitle="Main reasons paused opportunities are not moving."
-          data={holdReasonMix}
-          valueLabel="Opportunities"
-        />
-        <CategoryBarChart
-          title="Stage Timing"
-          subtitle="Average time spent moving between stages."
-          data={transitionTiming}
-          keyName="revenue"
-          valueLabel="Days"
-        />
-      </section>
-
-      <section className="insight-grid">
-        <CycleTimeChart data={agingRows} />
         <CategoryBarChart
           title="Brand Leaderboard"
           subtitle="Brands with the most live opportunities across markets."
@@ -714,44 +608,72 @@ export function DashboardPage() {
         />
       </section>
 
+      {/* ── Hold Reasons + Aging Pipeline ── */}
       <section className="insight-grid">
-        <HeatmapChart
-          title="Category by Launch Market"
-          subtitle="Where category concentration is strongest across target markets."
-          rows={heatmapRows}
-          columns={heatmapColumns}
-          values={heatmapValues}
+        <DonutBreakdownChart
+          title="Hold Reasons"
+          subtitle="Main reasons paused opportunities are not moving."
+          data={holdReasonMix}
+          valueLabel="Opportunities"
         />
-        <RevenueTrendChart data={stageVelocityData} />
+        <CycleTimeChart data={agingRows} />
       </section>
 
+      {/* ── Heatmap ── */}
+      {heatmapRows.length > 0 && heatmapColumns.length > 0 && (
+        <section>
+          <HeatmapChart
+            title="Category × Market Heatmap"
+            subtitle={`Where ${verticalLabel.toLowerCase()} category concentration is strongest across target markets.`}
+            rows={heatmapRows}
+            columns={heatmapColumns}
+            values={heatmapValues}
+          />
+        </section>
+      )}
+
+      {/* ── Stage Timing ── */}
+      {transitionTiming.length > 0 && (
+        <section>
+          <CategoryBarChart
+            title="Stage Transition Timing"
+            subtitle="Average days to move between pipeline stages."
+            data={transitionTiming}
+            keyName="revenue"
+            valueLabel="Days"
+          />
+        </section>
+      )}
+
+      {/* ── Management Attention ── */}
       <section>
         <PerformanceTable
           rows={priorityRows}
           title="Management Attention"
-          subtitle="Oldest open or held opportunities that likely need an intervention or a decision."
+          subtitle="Oldest open or paused opportunities — likely need a decision or escalation."
         />
       </section>
 
+      {/* ── Full Pipeline ── */}
       <section>
         <PerformanceTable
           rows={filteredRows}
-          title="Opportunity List"
-          subtitle="All opportunities in the current view."
+          title={`${verticalLabel} Opportunity List`}
+          subtitle={`All ${filteredRows.length} opportunities in the current view.`}
         />
       </section>
 
-
+      {/* ── Proactive Opportunities (Ask AI) ── */}
       <section className="panel">
         <div className="panel-header">
           <div>
             <div className="title-row">
-              <h2>Proactive Opportunities</h2>
-              <span className="beta-badge">BETA</span>
+              <h2>Ask AI — Pipeline Intelligence</h2>
+              <span className="beta-badge">AI</span>
             </div>
-            <p>AI scans the pipeline for gaps, quick wins, and untapped market slots.</p>
+            <p>AI analyses your live {verticalLabel.toLowerCase()} pipeline data to surface gaps, risks, and quick wins.</p>
           </div>
-          <button className="primary-button" onClick={() => void scanOpportunities()} disabled={oppsLoading} type="button">
+          <button className="primary-button" onClick={() => void scanOpportunities(pipelineContext)} disabled={oppsLoading} type="button">
             <Zap size={15} />
             {oppsLoading ? "Scanning..." : "Scan Now"}
           </button>
@@ -759,24 +681,27 @@ export function DashboardPage() {
         {oppsLoading && (
           <div className="brief-loading" style={{ marginTop: 16 }}>
             <div className="brief-spinner" />
-            Scanning pipeline for opportunities...
+            Analysing {filteredRows.length} opportunities...
           </div>
         )}
         {oppsText && !oppsLoading && (
           <div className="brief-text opps-text" style={{ marginTop: 16 }}>{oppsText}</div>
         )}
         {!oppsText && !oppsLoading && (
-          <p className="subdued" style={{ marginTop: 12 }}>Click Scan Now to get AI-powered opportunity recommendations based on current pipeline gaps.</p>
+          <p className="subdued" style={{ marginTop: 12 }}>
+            Click Scan Now — AI will analyse the {filteredRows.length} {verticalLabel.toLowerCase()} opportunities currently shown and give you specific, actionable recommendations.
+          </p>
         )}
       </section>
 
-      {briefOpen ? (
+      {/* ── Weekly Brief Modal ── */}
+      {briefOpen && (
         <div className="brief-modal-overlay" onClick={() => setBriefOpen(false)}>
-          <div className="brief-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="brief-modal" onClick={e => e.stopPropagation()}>
             <div className="brief-modal-header">
               <div className="brief-modal-title">
-                <strong>AI Weekly Brief</strong>
-                <span className="beta-badge">BETA</span>
+                <strong>AI Weekly Brief — {verticalLabel}</strong>
+                <span className="beta-badge">AI</span>
               </div>
               <button className="ghost-button agent-close-button" onClick={() => setBriefOpen(false)} type="button">
                 <X size={16} />
@@ -785,7 +710,7 @@ export function DashboardPage() {
             {briefLoading ? (
               <div className="brief-loading">
                 <div className="brief-spinner" />
-                Generating your brief...
+                Generating brief from {filteredRows.length} opportunities...
               </div>
             ) : (
               <>
@@ -800,7 +725,12 @@ export function DashboardPage() {
             )}
           </div>
         </div>
-      ) : null}
+      )}
     </div>
   );
+}
+
+// Helper needed in kpiMetrics (to avoid repetition)
+function marketMix(rows: PerformanceRow[]) {
+  return Array.from(new Set(rows.map(r => r.launchMarket).filter(Boolean)));
 }

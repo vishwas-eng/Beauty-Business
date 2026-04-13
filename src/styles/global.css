@@ -594,6 +594,40 @@ a {
   border: 1px solid var(--panel-border);
 }
 
+/* ── Vertical Toggle ── */
+.vertical-toggle {
+  display: flex;
+  gap: 2px;
+  background: var(--border);
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.vertical-toggle-btn {
+  padding: 5px 14px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.vertical-toggle-btn:hover {
+  background: rgba(255,255,255,0.7);
+  color: var(--text);
+}
+
+.vertical-toggle-btn.active {
+  background: #fff;
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+
 .filter-select {
   position: relative;
   display: grid;
