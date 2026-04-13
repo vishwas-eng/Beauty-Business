@@ -1,4 +1,4 @@
-import { BarChart3, Brain, FileText, FlaskConical, ImageIcon, Map, Package, TrendingUp, Layers, Database } from "lucide-react";
+import { BarChart3, Brain, FileText, FlaskConical, ImageIcon, Map, Package, TrendingUp, Layers, Database, Monitor } from "lucide-react";
 
 export interface NavItem {
   label: string;
@@ -23,6 +23,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Sheet Master",   icon: Brain,        path: "/sheet-master",  section: "growth", badge: "AI"  },
   { label: "One Brain",      icon: Brain,        path: "/brain",         section: "growth", badge: "AI"  },
   { label: "Data Workspace", icon: Database,     path: "/data-studio",   section: "growth", badge: "NEW" },
+  { label: "Presentation",  icon: Monitor,      path: "/presentation",  section: "growth", badge: "NEW" },
 ];
 
 export const REQUIRED_HEADERS = [

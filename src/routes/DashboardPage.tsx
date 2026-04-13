@@ -89,15 +89,18 @@ function isExecutiveOpportunity(row: PerformanceRow) {
   if (!brand || EXCLUDED_BRANDS.has(brand)) {
     return false;
   }
-  if (!normalizeCategory(row.category) || normalizeCategory(row.category) === "Unassigned") {
+  const cat = normalizeCategory(row.category);
+  if (!cat || cat === "Unassigned") {
     return false;
   }
+  // Fashion/Softlines rows are always eligible — they come from a separate verified source
+  const isFashion = cat.startsWith("Fashion");
   return Boolean(
     row.segment?.trim() &&
       row.sourceCountry?.trim() &&
       row.launchMarket.trim() &&
       row.status.trim() &&
-      (row.discussionStartDate || DISCUSSION_START_DATES[opportunityKey(row)])
+      (isFashion || row.discussionStartDate || DISCUSSION_START_DATES[opportunityKey(row)])
   );
 }
 
@@ -738,35 +741,6 @@ export function DashboardPage() {
         />
       </section>
 
-      {competitiveOverlaps.length > 0 && (
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <div className="title-row">
-                <h2>Competitive Overlaps</h2>
-                <span className="beta-badge">BETA</span>
-              </div>
-              <p>{competitiveOverlaps.length} category–market combinations with multiple active brands competing for the same slot.</p>
-            </div>
-          </div>
-          <div className="overlap-grid">
-            {competitiveOverlaps.map((overlap) => (
-              <div key={`${overlap.category}||${overlap.market}`} className="overlap-card">
-                <div className="overlap-header">
-                  <strong>{overlap.category}</strong>
-                  <span className="overlap-market">{overlap.market}</span>
-                  <span className="overlap-count">{overlap.brands.length} brands</span>
-                </div>
-                <div className="overlap-brands">
-                  {overlap.brands.map((b) => (
-                    <span key={b.brand} className="overlap-brand-chip">{b.brand} · {b.status}</span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
 
       <section className="panel">
         <div className="panel-header">
