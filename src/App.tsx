@@ -15,6 +15,7 @@ import { BrainPage } from "./routes/BrainPage";
 import { DataStudioPage } from "./routes/DataStudioPage";
 import { PresentationPage } from "./routes/PresentationPage";
 import { LoginPage } from "./routes/LoginPage";
+import { BrandsPipeline } from "./routes/BrandsPipeline";
 
 function ProtectedRoutes() {
   const { session, loading } = useAuth();
@@ -43,6 +44,7 @@ function ProtectedRoutes() {
         <Route path="/brain" element={<BrainPage />} />
         <Route path="/data-studio" element={<DataStudioPage />} />
         <Route path="/presentation" element={<PresentationPage />} />
+        <Route path="/pipeline" element={<BrandsPipeline />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppShell>

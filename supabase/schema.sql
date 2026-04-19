@@ -308,6 +308,51 @@ from inventory_alerts
 where not resolved and not acknowledged
 group by workspace_id, alert_type, severity;
 
+-- ============ BRANDS TABLE ============
+
+create table if not exists brands (
+  id uuid primary key default gen_random_uuid(),
+  brand_id text unique not null,
+  brand_name text not null,
+  category text,
+  market text,
+  pipeline_stage text check (pipeline_stage in ('Lead', 'MQL', 'SQL', 'Commercials', 'Signed', 'Live', 'Hold', 'Reject')),
+  owner text,
+  confirmed_revenue_usd numeric default 0,
+  pipeline_potential_usd numeric default 0,
+  deal_close_date date,
+  notes text,
+  google_drive_folder text,
+  last_updated timestamptz default now(),
+  last_synced timestamptz,
+  workspace_id uuid not null references workspaces(id) on delete cascade default '00000000-0000-0000-0000-000000000000'::uuid
+);
+
+-- Indexes for brands table
+create index if not exists idx_brands_workspace_id on brands(workspace_id);
+create index if not exists idx_brands_pipeline_stage on brands(pipeline_stage);
+create index if not exists idx_brands_category on brands(category);
+create index if not exists idx_brands_market on brands(market);
+create index if not exists idx_brands_owner on brands(owner);
+create index if not exists idx_brands_brand_id on brands(brand_id);
+
+-- Enable RLS
+alter table brands enable row level security;
+
+-- RLS Policies for brands
+create policy "workspace members read brands"
+  on brands for select
+  using (is_workspace_member(workspace_id));
+
+create policy "admins manage brands"
+  on brands for all
+  using (is_workspace_admin(workspace_id))
+  with check (is_workspace_admin(workspace_id));
+
+-- Trigger to update last_updated
+create trigger update_brands_last_updated before update on brands
+  for each row execute function update_updated_at_column();
+
 -- ============ INDEXES ============
 
 create index if not exists idx_analytics_records_workspace_date on analytics_records(workspace_id, date);
