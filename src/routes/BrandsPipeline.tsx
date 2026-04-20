@@ -56,7 +56,7 @@ export function BrandsPipeline() {
 
     const fetchBrands = async () => {
       try {
-        const { data, error } = await supabase
+        const { data, error } = await supabase!
           .from("brands")
           .select("*")
           .order("brand_name");
@@ -94,7 +94,7 @@ export function BrandsPipeline() {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase!.removeChannel(channel);
     };
   }, []);
 
@@ -106,10 +106,10 @@ export function BrandsPipeline() {
     const fashionCount = brands.filter(b => ["fashion", "apparel", "footwear"].includes(b.category?.toLowerCase() || "")).length;
 
     return [
-      { label: "Total Brands", value: String(totalBrands), delta: "+0%", tone: "neutral", hint: "Active in pipeline" },
-      { label: "Confirmed Revenue", value: `$${confirmedRevenue.toLocaleString()}`, delta: "+12.4%", tone: "positive", hint: "Signed deals" },
-      { label: "Pipeline Potential", value: `$${pipelinePotential.toLocaleString()}`, delta: "+8.1%", tone: "info", hint: "Total opportunity" },
-      { label: "Beauty / Fashion", value: `${beautyCount} / ${fashionCount}`, delta: "+3 this month", tone: "neutral", hint: "Category split" }
+      { label: "Total Brands", value: String(totalBrands), delta: "+0%", tone: "blue" as const, hint: "Active in pipeline" },
+      { label: "Confirmed Revenue", value: `$${confirmedRevenue.toLocaleString()}`, delta: "+12.4%", tone: "green" as const, hint: "Signed deals" },
+      { label: "Pipeline Potential", value: `$${pipelinePotential.toLocaleString()}`, delta: "+8.1%", tone: "purple" as const, hint: "Total opportunity" },
+      { label: "Beauty / Fashion", value: `${beautyCount} / ${fashionCount}`, delta: "+3 this month", tone: "blue" as const, hint: "Category split" }
     ];
   }, [brands]);
 

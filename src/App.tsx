@@ -14,6 +14,7 @@ import { SheetMasterPage } from "./routes/SheetMasterPage";
 import { BrainPage } from "./routes/BrainPage";
 import { DataStudioPage } from "./routes/DataStudioPage";
 import { PresentationPage } from "./routes/PresentationPage";
+import { EmailIntelPage } from "./routes/EmailIntelPage";
 import { LoginPage } from "./routes/LoginPage";
 import { BrandsPipeline } from "./routes/BrandsPipeline";
 
@@ -44,6 +45,7 @@ function ProtectedRoutes() {
         <Route path="/brain" element={<BrainPage />} />
         <Route path="/data-studio" element={<DataStudioPage />} />
         <Route path="/presentation" element={<PresentationPage />} />
+        <Route path="/email-intel" element={<EmailIntelPage />} />
         <Route path="/pipeline" element={<BrandsPipeline />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

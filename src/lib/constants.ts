@@ -1,4 +1,4 @@
-import { BarChart3, Brain, FileText, FlaskConical, ImageIcon, Map, Package, TrendingUp, Layers, Database, Monitor, Kanban } from "lucide-react";
+import { BarChart3, Brain, FileText, FlaskConical, ImageIcon, Map, Mail, Package, TrendingUp, Layers, Database, Monitor, Kanban } from "lucide-react";
 
 export interface NavItem {
   label: string;
@@ -17,6 +17,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Revenue Suite",  icon: TrendingUp,   path: "/revenue",               section: "workspace" },
   { label: "Presentation",   icon: Monitor,      path: "/presentation",          section: "workspace" },
   // Growth — live features
+  { label: "Email Intel",    icon: Mail,         path: "/email-intel",   section: "growth", badge: "NEW" },
   { label: "One Brain",      icon: Brain,        path: "/brain",         section: "growth", badge: "AI"  },
   { label: "Data Workspace", icon: Database,     path: "/data-studio",   section: "growth", badge: "NEW" },
   // Coming Soon
