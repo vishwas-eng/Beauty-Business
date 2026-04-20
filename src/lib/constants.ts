@@ -14,7 +14,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard",      icon: BarChart3,    path: "/",                      section: "workspace" },
   { label: "Pipeline",       icon: Kanban,       path: "/pipeline",              section: "workspace", badge: "NEW" },
   { label: "Brand 360",      icon: FileText,     path: "/brand/brand-nudestix",  section: "workspace" },
-  { label: "Revenue Suite",  icon: TrendingUp,   path: "/revenue",               section: "workspace" },
+  { label: "Revenue Suite",  icon: TrendingUp,   path: "/revenue",               section: "growth", comingSoon: true },
   { label: "Presentation",   icon: Monitor,      path: "/presentation",          section: "workspace" },
   // Growth — live features
   { label: "Email Intel",    icon: Mail,         path: "/email-intel",   section: "growth", badge: "NEW" },

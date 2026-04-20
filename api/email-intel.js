@@ -111,40 +111,6 @@ const BRAND_INTEL = [
     threadId: "19d9055ec09368b1",
     owner: "Richa Gupta"
   },
-  {
-    brand: "Jack & Jones",
-    category: "Fashion - Apparel",
-    segment: "Mid",
-    markets: ["India"],
-    stage: "Contract",
-    prevStage: "SQL",
-    heat: "hot",
-    lastActivity: "2026-04-14",
-    summary: "KNOT agreement exchanged with minor comments. Rutick Shah (KNOT) pressing for onboarding completion — 'entered new FY, want to complete onboarding at earliest.' Harjeet added Mukesh to close as priority.",
-    nextStep: "Mukesh to schedule meeting with KNOT, close agreement",
-    contacts: [
-      { name: "Rutick Shah", role: "Partner", company: "KNOT" },
-      { name: "Tauqir Barvatia", role: "Partner", company: "KNOT" },
-      { name: "Astha Saxena", role: "Contact", company: "Bestseller" }
-    ],
-    threadId: "19d29dc0d62a2b16",
-    owner: "Harjeet Kaur"
-  },
-  {
-    brand: "Puma",
-    category: "Fashion - Footwear",
-    segment: "Mid",
-    markets: ["GCC"],
-    stage: "Active",
-    prevStage: "Active",
-    heat: "warm",
-    lastActivity: "2026-04-01",
-    summary: "EXIM shipment request submitted (OPP-2026-4825). Sea/LCL from Turkey to UAE. Readiness date Apr 15. Operational deal in progress.",
-    nextStep: "Track shipment progress",
-    contacts: [],
-    threadId: "19d48de6505f62ee",
-    owner: "Vishwas Pandey"
-  }
 ];
 
 const connectedAccounts = [

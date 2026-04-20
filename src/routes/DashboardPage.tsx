@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, Copy, Download, RefreshCcw, Sparkles, X, Zap } from "lucide-react";
+import { ArrowUpRight, Check, ChevronDown, Copy, Download, Flame, Mail, RefreshCcw, Sparkles, X, Zap } from "lucide-react";
 import {
   CategoryBarChart,
   CycleTimeChart,
@@ -14,7 +14,7 @@ import { fetchDashboard, queryAgent, refreshSource } from "../lib/api";
 import { formatDateTime } from "../lib/format";
 import { DashboardPayload, PerformanceRow, TimeRange } from "../types/domain";
 
-type Vertical = "beauty" | "fashion" | "all";
+// Beauty-only dashboard — fashion removed for now
 
 const ACTIVE_STATUSES = ["Leads", "Lead", "MQL", "SQL", "Commercials", "OD", "Contract", "Onboarding"];
 const LATE_STAGE_STATUSES = ["Commercials", "OD", "Contract", "Onboarding"];
@@ -66,10 +66,6 @@ function normalizeCategory(category?: string) {
   return value;
 }
 
-function isFashionRow(row: PerformanceRow) {
-  return normalizeCategory(row.category).startsWith("Fashion");
-}
-
 function opportunityKey(row: Pick<PerformanceRow, "brand" | "launchMarket">) {
   return `${row.brand.trim()}||${row.launchMarket.trim()}`;
 }
@@ -89,13 +85,12 @@ function isExecutiveOpportunity(row: PerformanceRow) {
   if (!brand || EXCLUDED_BRANDS.has(brand)) return false;
   const cat = normalizeCategory(row.category);
   if (!cat || cat === "Unassigned") return false;
-  const isFashion = cat.startsWith("Fashion");
   return Boolean(
     row.segment?.trim() &&
     row.sourceCountry?.trim() &&
     row.launchMarket.trim() &&
     row.status.trim() &&
-    (isFashion || row.discussionStartDate || DISCUSSION_START_DATES[opportunityKey(row)])
+    (row.discussionStartDate || DISCUSSION_START_DATES[opportunityKey(row)])
   );
 }
 
@@ -167,8 +162,8 @@ function buildStageStack(
     );
 }
 
-function buildPipelineContext(rows: PerformanceRow[], vertical: Vertical): string {
-  const label = vertical === "all" ? "All Verticals" : vertical === "fashion" ? "Fashion / Softlines" : "Beauty";
+function buildPipelineContext(rows: PerformanceRow[]): string {
+  const label = "Beauty";
   const active = rows.filter(r => ACTIVE_STATUSES.includes(r.status));
   const onHold = rows.filter(r => r.status === "Hold");
   const lateStage = rows.filter(r => LATE_STAGE_STATUSES.includes(r.status));
@@ -200,10 +195,23 @@ function buildPipelineContext(rows: PerformanceRow[], vertical: Vertical): strin
   ].join("\n");
 }
 
-const VERTICAL_LABELS: Record<Vertical, string> = {
-  beauty: "Beauty",
-  fashion: "Fashion",
-  all: "All"
+
+interface EmailBrand {
+  brand: string; category: string; segment: string; markets: string[];
+  stage: string; prevStage: string; heat: "hot" | "warm" | "cold";
+  lastActivity: string; summary: string; nextStep: string; owner: string;
+}
+
+const EMAIL_FALLBACK: EmailBrand[] = [
+  { brand: "Nudestix", category: "Makeup", segment: "Premium", markets: ["SEA"], stage: "Commercials", prevStage: "SQL", heat: "hot", lastActivity: "2026-03-26", summary: "Term sheet updated & shared. Christopher Taylor responded positively. Item master sent to ops. Deal advancing toward final alignment.", nextStep: "Await Sigalit/team alignment on term sheet", owner: "Richa Gupta" },
+  { brand: "Ajmal", category: "Perfumes", segment: "Masstige", markets: ["SEA"], stage: "OD", prevStage: "Commercials", heat: "hot", lastActivity: "2026-04-12", summary: "NDA details requested. Richa sent NDA for priority signing. Deal gaining momentum.", nextStep: "Finalize NDA signing, advance to commercials", owner: "Richa Gupta" },
+  { brand: "D'You", category: "Skincare", segment: "Premium", markets: ["SEA", "GCC", "India"], stage: "SQL", prevStage: "MQL", heat: "hot", lastActivity: "2026-04-16", summary: "NDA signed. Brand details shared Apr 8. Proposal presented Apr 15. Deck sent Apr 16. Awaiting brand response.", nextStep: "Follow up on proposal — awaiting D'You response", owner: "Richa Gupta" },
+  { brand: "Beardo", category: "Mens' Grooming", segment: "Masstige", markets: ["SEA", "GCC"], stage: "SQL", prevStage: "MQL", heat: "hot", lastActivity: "2026-04-17", summary: "NDA finalizing. Proposal ready. Marico's Ankit Mittal proposed meeting slots Apr 23/24.", nextStep: "Confirm meeting slot (Apr 23/24) with Marico", owner: "Richa Gupta" },
+];
+
+const EMAIL_STAGE_COLOR: Record<string, string> = {
+  Commercials: "#fb923c", OD: "#f97316", Contract: "#34d399",
+  Onboarding: "#22c55e", SQL: "#a78bfa", MQL: "#38bdf8", Leads: "#60a5fa",
 };
 
 export function DashboardPage() {
@@ -211,7 +219,6 @@ export function DashboardPage() {
   const [payload, setPayload] = useState<DashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [vertical, setVertical] = useState<Vertical>("beauty");
   const [marketFilter, setMarketFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [briefOpen, setBriefOpen] = useState(false);
@@ -220,18 +227,19 @@ export function DashboardPage() {
   const [copied, setCopied] = useState(false);
   const [oppsText, setOppsText] = useState("");
   const [oppsLoading, setOppsLoading] = useState(false);
+  const [emailBrands, setEmailBrands] = useState<EmailBrand[]>([]);
 
   useEffect(() => {
     setLoading(true);
     void fetchDashboard(range).then(setPayload).finally(() => setLoading(false));
   }, [range]);
 
-  // Reset sub-filters when vertical changes
-  function handleVerticalChange(v: Vertical) {
-    setVertical(v);
-    setMarketFilter("all");
-    setCategoryFilter("all");
-  }
+  useEffect(() => {
+    fetch("/api/email-intel")
+      .then(r => r.headers.get("content-type")?.includes("application/json") ? r.json() : null)
+      .then(d => { setEmailBrands(d?.brands?.length ? d.brands : EMAIL_FALLBACK); })
+      .catch(() => setEmailBrands(EMAIL_FALLBACK));
+  }, []);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -240,12 +248,13 @@ export function DashboardPage() {
     setRefreshing(false);
   }
 
-  async function generateBrief(context: string) {
+  async function generateBrief() {
     setBriefOpen(true);
     setBriefLoading(true);
     setBriefText("");
+    const ctx = pipelineContext;
     const res = await queryAgent(
-      `${context}\n\nUsing ONLY the pipeline data above, generate a concise executive brief (under 200 words). Write as a senior analyst briefing a VP before a Monday meeting. Include: 1) One-line pipeline snapshot with exact numbers from the data, 2) Top 2 risks or blockers with specific brand/market examples from the data, 3) Late-stage pipeline update with actual brand names, 4) 3 recommended actions for this week. Be direct and specific — only reference brands and numbers from the data provided.`
+      `${ctx}\n\nUsing ONLY the pipeline data above, generate a concise executive brief (under 200 words). Write as a senior analyst briefing a VP before a Monday meeting. Include: 1) One-line pipeline snapshot with exact numbers from the data, 2) Top 2 risks or blockers with specific brand/market examples from the data, 3) Late-stage pipeline update with actual brand names, 4) 3 recommended actions for this week. Be direct and specific — only reference brands and numbers from the data provided.`
     );
     setBriefText(res.answer);
     setBriefLoading(false);
@@ -257,11 +266,12 @@ export function DashboardPage() {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  async function scanOpportunities(context: string) {
+  async function scanOpportunities() {
     setOppsLoading(true);
     setOppsText("");
+    const ctx = pipelineContext;
     const res = await queryAgent(
-      `${context}\n\nUsing ONLY the pipeline data above, identify 3-5 proactive opportunities we should act on urgently. Look for: brands close to late-stage with no momentum, markets with thin coverage, categories underrepresented in key markets, quick wins this week. Name actual brands and markets from the data. Format as a numbered list.`
+      `${ctx}\n\nUsing ONLY the pipeline data above, identify 3-5 proactive opportunities we should act on urgently. Look for: brands close to late-stage with no momentum, markets with thin coverage, categories underrepresented in key markets, quick wins this week. Name actual brands and markets from the data. Format as a numbered list.`
     );
     setOppsText(res.answer);
     setOppsLoading(false);
@@ -278,21 +288,15 @@ export function DashboardPage() {
   // Step 1: quality filter
   const cleanRows = payload.performance.filter(isExecutiveOpportunity).map(normalizeRow);
 
-  // Step 2: vertical filter (Beauty / Fashion / All)
-  const verticalRows = cleanRows.filter(row => {
-    if (vertical === "all") return true;
-    return vertical === "fashion" ? isFashionRow(row) : !isFashionRow(row);
-  });
-
-  // Step 3: market + category filter
-  const marketCounts = summarizeCountsByOpportunity(verticalRows, r => r.launchMarket)
+  // Step 2: market + category filter
+  const marketCounts = summarizeCountsByOpportunity(cleanRows, r => r.launchMarket)
     .sort(([a], [b]) => a.localeCompare(b));
-  const categoryCounts = summarizeCountsByUniqueBrand(verticalRows, r => r.category)
+  const categoryCounts = summarizeCountsByUniqueBrand(cleanRows, r => r.category)
     .sort(([a], [b]) => a.localeCompare(b));
   const availableMarkets = marketCounts.map(([m]) => m);
   const availableCategories = categoryCounts.map(([c]) => c);
 
-  const filteredRows = verticalRows.filter(row => {
+  const filteredRows = cleanRows.filter(row => {
     const matchesMarket = marketFilter === "all" || row.launchMarket === marketFilter;
     const matchesCategory = categoryFilter === "all" || row.category === categoryFilter;
     return matchesMarket && matchesCategory;
@@ -456,7 +460,7 @@ export function DashboardPage() {
   const mostAdvancedMarket = marketStageData.find(m => Number(m.Commercials) > 0)?.name ?? "—";
   const topCategory = categoryMix[0]?.category ?? "—";
   const topHoldReason = holdReasonMix[0]?.category ?? "—";
-  const verticalLabel = VERTICAL_LABELS[vertical];
+  const verticalLabel = "Beauty";
 
   const businessSummary = [
     { title: "Pipeline", detail: `${totalOpportunities} opportunities across ${uniqueBrands} brands — ${activeRows.length} active, ${lateStageRows.length} in late-stage.` },
@@ -465,7 +469,7 @@ export function DashboardPage() {
   ];
 
   // Build context for AI (uses filteredRows, not cleanRows)
-  const pipelineContext = buildPipelineContext(filteredRows, vertical);
+  const pipelineContext = buildPipelineContext(filteredRows);
 
   return (
     <div className="page-stack">
@@ -476,20 +480,6 @@ export function DashboardPage() {
           <p className="subdued">Last updated {formatDateTime(payload.lastSyncedAt)}</p>
         </div>
         <div className="action-row">
-          {/* Vertical toggle */}
-          <div className="vertical-toggle">
-            {(["beauty", "fashion", "all"] as Vertical[]).map(v => (
-              <button
-                key={v}
-                className={`vertical-toggle-btn${vertical === v ? " active" : ""}`}
-                onClick={() => handleVerticalChange(v)}
-                type="button"
-              >
-                {v === "beauty" ? "💄 Beauty" : v === "fashion" ? "👗 Fashion" : "🌐 All"}
-              </button>
-            ))}
-          </div>
-
           {/* Market filter */}
           <label className="filter-select">
             <span>Market</span>
@@ -515,7 +505,7 @@ export function DashboardPage() {
             <RefreshCcw size={16} />
             {refreshing ? "Refreshing..." : "Refresh"}
           </button>
-          <button className="primary-button" onClick={() => void generateBrief(pipelineContext)} type="button">
+          <button className="primary-button" onClick={() => void generateBrief()} type="button">
             <Sparkles size={15} />
             Weekly Brief
           </button>
@@ -573,6 +563,50 @@ export function DashboardPage() {
       <section className="kpi-grid">
         {kpiMetrics.map(metric => <KpiCard key={metric.label} metric={metric} />)}
       </section>
+
+      {/* ── Email Intelligence Strip ── */}
+      {emailBrands.length > 0 && (
+        <section>
+          <div className="ei-dash-header">
+            <div className="ei-dash-title">
+              <Mail size={15} />
+              Email Intelligence
+              <span className="ei-dash-badge">LIVE</span>
+            </div>
+            <a href="/email-intel" className="ei-dash-viewall">
+              View all <ArrowUpRight size={13} />
+            </a>
+          </div>
+          <div className="ei-dash-cards">
+            {emailBrands.filter(b => b.heat === "hot").slice(0, 4).map(b => {
+              const stageColor = EMAIL_STAGE_COLOR[b.stage] || "#94a3b8";
+              return (
+                <div key={b.brand} className="ei-dash-card">
+                  <div className="ei-dash-card-top">
+                    <div className="ei-dash-card-brand">{b.brand}</div>
+                    <span className="ei-dash-heat"><Flame size={11} /> Hot</span>
+                  </div>
+                  <div className="ei-dash-card-meta">
+                    {b.category} · {b.markets.join(", ")}
+                  </div>
+                  <div className="ei-dash-stage-row">
+                    <span className="ei-dash-stage" style={{ color: stageColor, borderColor: stageColor + "40", background: stageColor + "12" }}>
+                      {b.stage}
+                    </span>
+                    {b.prevStage && b.prevStage !== b.stage && (
+                      <span className="ei-dash-moved"><ArrowUpRight size={11} /> from {b.prevStage}</span>
+                    )}
+                  </div>
+                  <p className="ei-dash-summary">{b.summary}</p>
+                  <div className="ei-dash-next">
+                    <Zap size={11} /> {b.nextStep}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* ── Stage Funnel + Market Pipeline ── */}
       <section className="insight-grid">
@@ -673,7 +707,7 @@ export function DashboardPage() {
             </div>
             <p>AI analyses your live {verticalLabel.toLowerCase()} pipeline data to surface gaps, risks, and quick wins.</p>
           </div>
-          <button className="primary-button" onClick={() => void scanOpportunities(pipelineContext)} disabled={oppsLoading} type="button">
+          <button className="primary-button" onClick={() => void scanOpportunities()} disabled={oppsLoading} type="button">
             <Zap size={15} />
             {oppsLoading ? "Scanning..." : "Scan Now"}
           </button>

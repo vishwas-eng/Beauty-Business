@@ -288,7 +288,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span className="lumara-by">by Opptra</span>
             </div>
             <p className="subdued">
-              AI-powered Beauty + Fashion pipeline intelligence.
+              AI-powered beauty brand pipeline intelligence.
             </p>
           </div>
 
